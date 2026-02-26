@@ -1,134 +1,222 @@
-import React from "react";
-import { View, Text, StyleSheet, Image, TouchableOpacity, FlatList } from "react-native";
-import Icon from "react-native-vector-icons/Ionicons";
+import React, { useEffect, useState, useCallback } from 'react'
+import {
+  View,
+  Text,
+  Image,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  ActivityIndicator,
+  Alert
+} from 'react-native'
+import AsyncStorage from '@react-native-async-storage/async-storage'
+import ImageViewing from 'react-native-image-viewing'
+import ImagePicker from 'react-native-image-crop-picker'
 
-type MenuItem = {
-  id: string;
-  title: string;
-  icon: string;
-};
+const BASE_URL = 'http://api.xiaoen.xyz/api/v1'
 
+const defaultAvatar = require('../assets/default-avatar.png')
+const defaultBg = require('../assets/default-bg.jpg')
 
-const menuItems = [
-  { id: "1", title: "个人主页", icon: "person-outline" },
-  { id: "2", title: "创作中心", icon: "create-outline" },
-  { id: "3", title: "我的收藏", icon: "star-outline" },
-  { id: "4", title: "设置", icon: "settings-outline" },
-];
+export default function ProfileScreen({ navigation }: any) {
+  const [user, setUser] = useState<any>(null)
+  const [loading, setLoading] = useState(false)
+  const [uploading, setUploading] = useState(false)
 
-export default function ProfileScreen() {
-  const renderItem = ({ item }: { item: MenuItem }) => (
-    <TouchableOpacity style={styles.item}>
-      <View style={styles.itemLeft}>
-        <Icon name={item.icon} size={22} color="#4BA5E8" />
-        <Text style={styles.itemText}>{item.title}</Text>
+  const [previewVisible, setPreviewVisible] = useState(false)
+  const [previewType, setPreviewType] = useState<'avatar' | 'background'>(
+    'avatar'
+  )
+
+  const getToken = async () => {
+    return await AsyncStorage.getItem('token')
+  }
+
+  const loadUserInfo = useCallback(async () => {
+    try {
+      setLoading(true)
+      const token = await getToken()
+      if (!token) return
+
+      const res = await fetch(`${BASE_URL}/user/info`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+
+      const json = await res.json()
+      if (json.code === 200) {
+        setUser(json.data)
+      }
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadUserInfo()
+  }, [loadUserInfo])
+
+  // 监听页面是否返回，刷新数据
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      loadUserInfo() // 页面返回时刷新数据
+    })
+    return unsubscribe
+  }, [navigation, loadUserInfo])
+
+  const openPreview = (type: 'avatar' | 'background') => {
+    setPreviewType(type)
+    setPreviewVisible(true)
+  }
+
+  const pickAndCropImage = async () => {
+    try {
+      const image = await ImagePicker.openPicker({
+        width: previewType === 'avatar' ? 400 : 1200,
+        height: previewType === 'avatar' ? 400 : 600,
+        cropping: true,
+        cropperCircleOverlay: previewType === 'avatar',
+        mediaType: 'photo'
+      })
+
+      const formData = new FormData()
+      formData.append('file', {
+        uri: image.path,
+        type: image.mime,
+        name: 'upload.jpg'
+      } as any)
+
+      const token = await getToken()
+      if (!token) return
+
+      const url =
+        previewType === 'avatar'
+          ? `${BASE_URL}/user/avatar`
+          : `${BASE_URL}/user/background`
+
+      setUploading(true)
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`
+        },
+        body: formData
+      })
+
+      const json = await res.json()
+
+      if (json.code === 200) {
+        Alert.alert('上传成功')
+        loadUserInfo() // 上传成功后刷新页面
+      } else {
+        Alert.alert('上传失败', json.message)
+      }
+    } catch (e) {
+      console.log(e)
+    } finally {
+      setUploading(false)
+      setPreviewVisible(false)
+    }
+  }
+
+  if (loading) {
+    return <ActivityIndicator style={{ flex: 1 }} />
+  }
+
+  if (!user) {
+    return (
+      <View style={styles.center}>
+        <Text>未登录</Text>
       </View>
-      <Icon name="chevron-forward" size={20} color="#999" />
-    </TouchableOpacity>
-  );
+    )
+  }
+
+  const avatarSource = user.avatar
+    ? { uri: `${user.avatar}?t=${Date.now()}` }
+    : defaultAvatar
+
+  const bgSource = user.background
+    ? { uri: `${user.background}?t=${Date.now()}` }
+    : defaultBg
 
   return (
-    <View style={styles.container}>
-      {/* header */}
-      <View style={styles.header}>
-        <View style={styles.avatarWrap}>
-          <Image
-            style={styles.avatar}
-            source={{ uri: "https://ts3.tc.mm.bing.net/th/id/OIP-C.VCcgAcUd3Xv7HszQm8ZaJQHaEK?rs=1&pid=ImgDetMain&o=7&rm=3" }}
-          />
-        </View>
-        <Text style={styles.name}>昵称</Text>
-        <TouchableOpacity style={styles.settingsBtn}>
-          <Icon name="settings-outline" size={24} />
+    <>
+      <ScrollView style={styles.container}>
+        <TouchableOpacity onPress={() => openPreview('background')}>
+          <Image source={bgSource} style={styles.bg} />
         </TouchableOpacity>
-      </View>
 
-      {/* banner or vip card */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>加入QQ群聊 868839367 参与内测 </Text>
-      </View>
+        <TouchableOpacity onPress={() => openPreview('avatar')}>
+          <Image source={avatarSource} style={styles.avatar} />
+        </TouchableOpacity>
 
-      <FlatList
-        data={menuItems}
-        keyExtractor={(item) => item.id}
-        renderItem={renderItem}
-        style={{ marginTop: 10 }}
+        <Text style={styles.username}>{user.username}</Text>
+
+        <View style={styles.infoBox}>
+          <Text>绑定QQ：{user.bind_qq || '未绑定'}</Text>
+          <Text>绑定微信：{user.bind_wx || '未绑定'}</Text>
+          <Text>绑定手机号：{user.bind_phone || '未绑定'}</Text>
+        </View>
+
+        <TouchableOpacity
+          style={styles.button}
+          onPress={() => navigation.navigate('EditProfile', { user })}
+        >
+          <Text style={{ color: '#fff' }}>编辑资料</Text>
+        </TouchableOpacity>
+      </ScrollView>
+
+      <ImageViewing
+        images={[previewType === 'avatar' ? avatarSource : bgSource]}
+        imageIndex={0}
+        visible={previewVisible}
+        onRequestClose={() => setPreviewVisible(false)}
+        HeaderComponent={() => (
+          <View style={styles.header}>
+            <TouchableOpacity onPress={pickAndCropImage}>
+              <Text style={styles.changeText}>
+                {uploading ? '上传中...' : '更换'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
       />
-    </View>
-  );
+    </>
+  )
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#fff",
+  container: { flex: 1, padding: 20 },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  bg: { width: '100%', height: 150, borderRadius: 3 },
+  avatar: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    marginTop: -50,
+    alignSelf: 'center'
+  },
+  username: {
+    textAlign: 'center',
+    fontSize: 18,
+    marginTop: 10
+  },
+  infoBox: { marginTop: 20, gap: 8 },
+  button: {
+    marginTop: 25,
+    backgroundColor: '#111',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center'
   },
   header: {
-    paddingTop: 40,
-    paddingBottom: 20,
-    paddingHorizontal: 16,
-    alignItems: "center",
-    display: "flex",
-  },
-  avatarWrap: {
-    flex: 1,
-    width: 70,
-    height: 70,
-    borderRadius: 35,
-    backgroundColor: "#eee",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  avatar: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
-  },
-  name: {
-    marginTop: 10,
-    fontSize: 18,
-    fontWeight: "600",
-  },
-  settingsBtn: {
-    position: "absolute",
+    position: 'absolute',
     top: 50,
-    right: 16,
+    right: 20,
+    zIndex: 10
   },
-  card: {
-    marginHorizontal: 16,
-    padding: 16,
-    backgroundColor: "#007dc0",
-    borderRadius: 10,
-    // iOS 阴影
-    shadowColor: '#000',
-    shadowOffset: { width: 2, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    // Android 阴影
-    elevation: 20,
-  },
-  cardTitle: {
-    color: "#fff",
-    fontSize: 16,
-    marginBottom: 0,
-    fontWeight: 600,
-    justifyContent: "center",
-    alignItems: "center"
-  },
-  item: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f2f2f2",
-  },
-  itemLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  itemText: {
-    fontSize: 16,
-    marginLeft: 12,
-  },
-});
+  changeText: {
+    color: '#fff',
+    fontSize: 16
+  }
+})

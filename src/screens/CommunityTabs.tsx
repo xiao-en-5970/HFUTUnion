@@ -5,7 +5,7 @@ import QuestionListScreen from './QuestionListScreen'
 
 const Tab = createMaterialTopTabNavigator()
 
-export default function Community() {
+export default function CommunityTabs() {
   return (
     <Tab.Navigator>
       <Tab.Screen name="帖子" component={PostListScreen} />

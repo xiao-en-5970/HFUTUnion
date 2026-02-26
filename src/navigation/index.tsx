@@ -1,11 +1,10 @@
-import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
-import BottomTabs from './BottomTabs';
+import RootStack from './RootStack';
 
 export default function Navigation() {
   return (
     <NavigationContainer>
-      <BottomTabs />
+      <RootStack />
     </NavigationContainer>
   );
 }

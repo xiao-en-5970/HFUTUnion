@@ -46,7 +46,7 @@ export default function BottomTabs() {
         },
       }}
     >
-      <Tab.Screen name="搜索" component={HomeScreen} />
+      <Tab.Screen name="Search" options={{ title: '搜索' }} component={HomeScreen}/>
       <Tab.Screen name="社区" component={Community} />
       <Tab.Screen name="消息" component={Messages} />
       <Tab.Screen name="念书" component={Library}/>
