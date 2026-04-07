@@ -1,123 +1,91 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react';
 import {
   View,
-  TextInput,
-  TouchableOpacity,
   Text,
-  Alert
-} from 'react-native'
-import AsyncStorage from '@react-native-async-storage/async-storage'
-
-const BASE_URL = 'http://api.xiaoen.xyz/api/v1'
+  TextInput,
+  StyleSheet,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+} from 'react-native';
+import { listPostDrafts, publishPost, updatePost } from '../api/article';
+import Screen from '../components/Screen';
+import PrimaryButton from '../components/PrimaryButton';
+import { colors, radius, space } from '../theme/colors';
 
 export default function EditPostScreen({ route, navigation }: any) {
-  const { id } = route.params
+  const { id } = route.params;
+  const [title, setTitle] = useState('');
+  const [content, setContent] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const [title, setTitle] = useState('')
-  const [content, setContent] = useState('')
-
-  const loadDraft = async () => {
-    const token = await AsyncStorage.getItem('token')
-    if (!token) return
-
-    const res = await fetch(
-      `${BASE_URL}/post/drafts?page=1&pageSize=10`,
-      {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      }
-    )
-
-    const text = await res.text()
-    let json
+  const load = async () => {
     try {
-      json = JSON.parse(text)
-    } catch {
-      return
-    }
-
-    if (json.code === 200) {
-      const draft = json.data.list.find(
-        (item: any) => item.id === id
-      )
+      const res = await listPostDrafts(1, 20);
+      const draft = res.list?.find((item: any) => item.id === id);
       if (draft) {
-        setTitle(draft.title)
-        setContent(draft.content)
+        setTitle(draft.title || '');
+        setContent(draft.content || '');
       }
+    } catch {
+      /* ignore */
     }
-  }
+  };
 
   useEffect(() => {
-    loadDraft()
-  }, [])
+    load();
+  }, [id]);
 
   const publish = async () => {
-    const token = await AsyncStorage.getItem('token')
-    if (!token) return
-
-    const res = await fetch(
-      `${BASE_URL}/post/${id}/publish`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      }
-    )
-
-    console.log('发布状态码:', res.status)
-    console.log('发布的ID:', id)
-
-    const text = await res.text()
-    console.log('发布原始返回:', text)
-
     try {
-      const json = JSON.parse(text)
-
-      if (json.code === 200) {
-        Alert.alert('发布成功')
-        navigation.popToTop()
-      } else {
-        Alert.alert(json.message || '发布失败')
-      }
-    } catch (e) {
-      Alert.alert('接口不是JSON')
+      setLoading(true);
+      await updatePost(id, { title, content });
+      await publishPost(id);
+      Alert.alert('发布成功', '', [
+        { text: '确定', onPress: () => navigation.popToTop() },
+      ]);
+    } catch (e: any) {
+      Alert.alert('失败', e?.message || '');
+    } finally {
+      setLoading(false);
     }
-  }
+  };
 
   return (
-    <View style={{ padding: 15 }}>
-      <TextInput
-        value={title}
-        onChangeText={setTitle}
-        style={{ borderBottomWidth: 1, marginBottom: 15 }}
-      />
-
-      <TextInput
-        value={content}
-        onChangeText={setContent}
-        multiline
-        style={{
-          borderWidth: 1,
-          height: 120,
-          padding: 10
-        }}
-      />
-
-      <TouchableOpacity
-        onPress={publish}
-        style={{
-          backgroundColor: '#111',
-          padding: 15,
-          marginTop: 20
-        }}
-      >
-        <Text style={{ color: '#fff', textAlign: 'center' }}>
-          发布
-        </Text>
-      </TouchableOpacity>
-    </View>
-  )
+    <Screen edges={['top', 'bottom']}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.inner}>
+        <Text style={styles.title}>编辑草稿</Text>
+        <TextInput
+          style={styles.input}
+          value={title}
+          onChangeText={setTitle}
+        />
+        <TextInput
+          style={[styles.input, styles.area]}
+          value={content}
+          onChangeText={setContent}
+          multiline
+        />
+        <PrimaryButton title="发布" onPress={publish} loading={loading} />
+      </KeyboardAvoidingView>
+    </Screen>
+  );
 }
+
+const styles = StyleSheet.create({
+  inner: { flex: 1, padding: space.md },
+  title: { fontSize: 20, fontWeight: '700', marginBottom: space.md, color: colors.text },
+  input: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    padding: 12,
+    fontSize: 16,
+    color: colors.text,
+    backgroundColor: colors.surface,
+    marginBottom: space.md,
+  },
+  area: { minHeight: 160, textAlignVertical: 'top' },
+});

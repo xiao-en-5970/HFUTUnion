@@ -1,108 +1,207 @@
-import React, { useEffect, useState } from 'react'
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View,
   Text,
   FlatList,
-  TouchableOpacity
-} from 'react-native'
-import AsyncStorage from '@react-native-async-storage/async-storage'
-
-const BASE_URL = 'http://api.xiaoen.xyz/api/v1'
+  TouchableOpacity,
+  StyleSheet,
+  RefreshControl,
+  ActivityIndicator,
+} from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
+import Ionicons from 'react-native-vector-icons/Ionicons';
+import { listPosts } from '../api/article';
+import Screen from '../components/Screen';
+import LoadingMask from '../components/LoadingMask';
+import { colors, radius, space } from '../theme/colors';
+import { cacheGet, cacheSet } from '../utils/cacheStorage';
+import { useCommunityFeedMode } from '../context/CommunityFeedContext';
+import {
+  PAGE_SIZE,
+  mergeById,
+  hasMorePages,
+} from '../utils/pagination';
 
 export default function PostListScreen({ navigation }: any) {
-  const [posts, setPosts] = useState<any[]>([])
-
-  const loadPosts = async () => {
-    console.log('开始加载帖子列表')
-
-    const token = await AsyncStorage.getItem('token')
-    if (!token) {
-      console.log('没有token')
-      return
-    }
-
-    try {
-      const res = await fetch(
-        `${BASE_URL}/post?page=1&pageSize=20`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`
-          }
-        }
-      )
-
-      console.log('列表状态码:', res.status)
-
-      const text = await res.text()
-      // console.log('列表原始返回:', text)
-
-      let json
-      try {
-        json = JSON.parse(text)
-      } catch {
-        console.log('返回不是JSON')
-        return
-      }
-
-      if (json.code === 200) {
-        setPosts(json.data.list || [])
-        console.log('当前posts数量:', json.data.list?.length)
-      } else {
-        console.log('接口code异常:', json)
-      }
-
-    } catch (e) {
-      console.log('加载异常:', e)
-    }
-  }
+  const { feedMode } = useCommunityFeedMode();
+  const tabBarHeight = useBottomTabBarHeight();
+  const [posts, setPosts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const pageRef = useRef(1);
+  const loadingMoreRef = useRef(false);
+  const hasMoreRef = useRef(true);
 
   useEffect(() => {
-    // 首次进入加载
-    loadPosts()
+    hasMoreRef.current = hasMore;
+  }, [hasMore]);
 
-    // 每次页面获得焦点重新加载
-    const unsubscribe = navigation.addListener('focus', () => {
-      console.log('页面获得焦点')
-      loadPosts()
-    })
+  const cacheKey = `community:posts:v1:${feedMode}`;
 
-    return unsubscribe
-  }, [])
+  const loadInitial = useCallback(async () => {
+    let hadCache = false;
+    try {
+      const cached = await cacheGet<{ list: any[] }>(cacheKey);
+      if (cached?.list?.length) {
+        hadCache = true;
+        setPosts(cached.list);
+        setLoading(false);
+      }
+    } catch {
+      /* noop */
+    }
+    if (!hadCache) {
+      setLoading(true);
+    }
+    pageRef.current = 1;
+    loadingMoreRef.current = false;
+    try {
+      const res = await listPosts(1, PAGE_SIZE, { mode: feedMode });
+      const rows = res.list || [];
+      const total = res.total;
+      setPosts(rows);
+      const more = hasMorePages(rows.length, PAGE_SIZE, total, rows.length);
+      setHasMore(more);
+      hasMoreRef.current = more;
+      await cacheSet(cacheKey, { list: rows });
+    } catch {
+      if (!hadCache) {
+        setPosts([]);
+      }
+      setHasMore(false);
+      hasMoreRef.current = false;
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [cacheKey, feedMode]);
 
-  // console.log('渲染时posts数量:', posts.length)
+  const loadMore = useCallback(async () => {
+    if (!hasMoreRef.current || loadingMoreRef.current) {
+      return;
+    }
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    try {
+      const nextPage = pageRef.current + 1;
+      const res = await listPosts(nextPage, PAGE_SIZE, { mode: feedMode });
+      const rows = res.list || [];
+      const total = res.total;
+      setPosts((prev) => {
+        const merged = mergeById(prev, rows);
+        const more = hasMorePages(rows.length, PAGE_SIZE, total, merged.length);
+        setHasMore(more);
+        hasMoreRef.current = more;
+        return merged;
+      });
+      if (rows.length > 0) {
+        pageRef.current = nextPage;
+      }
+    } catch {
+      /* keep list */
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+  }, [feedMode]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadInitial();
+    }, [loadInitial]),
+  );
+
+  const fabBottom = tabBarHeight + 12;
 
   return (
-    <View style={{ flex: 1, padding: 15 }}>
-      <TouchableOpacity
-        onPress={() => navigation.navigate('CreateDraft')}
-        style={{
-          backgroundColor: '#111',
-          padding: 12,
-          marginBottom: 15
-        }}
-      >
-        <Text style={{ color: '#fff', textAlign: 'center' }}>
-          发帖
-        </Text>
-      </TouchableOpacity>
+    <Screen scroll={false}>
+      <View style={styles.wrap}>
+        <LoadingMask visible={loading && posts.length === 0} hint="正在加载帖子…" />
+        <FlatList
+          style={styles.flex}
+          data={posts}
+          keyExtractor={(item) => String(item.id)}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => {
+                setRefreshing(true);
+                loadInitial();
+              }}
+              tintColor={colors.primary}
+            />
+          }
+          contentContainerStyle={[styles.list, { paddingBottom: fabBottom + 56 }]}
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.35}
+          ListFooterComponent={
+            loadingMore ? (
+              <ActivityIndicator style={styles.footerSp} color={colors.primary} />
+            ) : null
+          }
+          ListEmptyComponent={
+            <Text style={styles.empty}>暂无帖子，点击下方加号发帖</Text>
+          }
+          renderItem={({ item }) => (
+            <TouchableOpacity
+              style={styles.card}
+              activeOpacity={0.8}
+              onPress={() => navigation.navigate('PostDetail', { id: item.id })}>
+              <Text style={styles.cardTitle} numberOfLines={2}>
+                {item.title || item.content?.slice(0, 60)}
+              </Text>
+              <Text style={styles.cardMeta}>
+                {item.author?.username} · {item.like_count ?? 0} 赞
+                {item.view_count != null ? ` · ${item.view_count} 浏览` : ''}
+              </Text>
+            </TouchableOpacity>
+          )}
+        />
 
-      <FlatList
-        data={posts}
-        keyExtractor={(item) => item.id.toString()}
-        renderItem={({ item }) => (
-          <View style={{ marginBottom: 15 }}>
-            <Text style={{ fontWeight: 'bold' }}>
-              {item.title}
-            </Text>
-            <Text>{item.content}</Text>
-          </View>
-        )}
-        ListEmptyComponent={
-          <Text style={{ textAlign: 'center', marginTop: 40 }}>
-            暂无帖子
-          </Text>
-        }
-      />
-    </View>
-  )
+        <TouchableOpacity
+          style={[styles.fab, { bottom: fabBottom }]}
+          activeOpacity={0.88}
+          onPress={() => navigation.navigate('CreateDraft')}
+          accessibilityLabel="发帖">
+          <Ionicons name="add" size={34} color="#fff" />
+        </TouchableOpacity>
+      </View>
+    </Screen>
+  );
 }
+
+const styles = StyleSheet.create({
+  wrap: { flex: 1, position: 'relative' },
+  flex: { flex: 1 },
+  list: { paddingHorizontal: space.md, paddingTop: space.sm },
+  footerSp: { marginVertical: 16 },
+  card: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    padding: space.md,
+    marginBottom: space.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  cardTitle: { fontSize: 16, fontWeight: '600', color: colors.text },
+  cardMeta: { marginTop: 8, fontSize: 12, color: colors.textMuted },
+  empty: { textAlign: 'center', color: colors.textMuted, marginTop: 40 },
+  fab: {
+    position: 'absolute',
+    alignSelf: 'center',
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+  },
+});

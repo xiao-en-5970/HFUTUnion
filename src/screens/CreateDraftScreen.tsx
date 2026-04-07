@@ -1,91 +1,79 @@
-import React, { useState } from 'react'
+import React, { useState } from 'react';
 import {
   View,
-  TextInput,
-  TouchableOpacity,
   Text,
-  Alert
-} from 'react-native'
-import AsyncStorage from '@react-native-async-storage/async-storage'
-
-const BASE_URL = 'http://api.xiaoen.xyz/api/v1'
+  TextInput,
+  StyleSheet,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+} from 'react-native';
+import { createPostDraft } from '../api/article';
+import Screen from '../components/Screen';
+import PrimaryButton from '../components/PrimaryButton';
+import { colors, radius, space } from '../theme/colors';
 
 export default function CreateDraftScreen({ navigation }: any) {
-  const [title, setTitle] = useState('')
-  const [content, setContent] = useState('')
+  const [title, setTitle] = useState('');
+  const [content, setContent] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const createDraft = async () => {
-    const token = await AsyncStorage.getItem('token')
-    if (!token) {
-      Alert.alert('请先登录')
-      return
-    }
-
-    const res = await fetch(`${BASE_URL}/post`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
+  const save = async () => {
+    try {
+      setLoading(true);
+      const { id } = await createPostDraft({
         title,
         content,
         publish_status: 2,
-        is_public: 1
-      })
-    })
-
-    const text = await res.text()
-
-    let json
-    try {
-      json = JSON.parse(text)
-    } catch {
-      Alert.alert('接口返回异常')
-      return
+        is_public: 1,
+      });
+      navigation.replace('EditPost', { id });
+    } catch (e: any) {
+      Alert.alert('失败', e?.message || '');
+    } finally {
+      setLoading(false);
     }
-
-    if (json.code === 200) {
-      const draftId = json.data.id
-      navigation.replace('EditPost', { id: draftId })
-    } else {
-      Alert.alert(json.message || '创建草稿失败')
-    }
-  }
+  };
 
   return (
-    <View style={{ padding: 15 }}>
-      <TextInput
-        placeholder="标题"
-        value={title}
-        onChangeText={setTitle}
-        style={{ borderBottomWidth: 1, marginBottom: 15 }}
-      />
-
-      <TextInput
-        placeholder="内容"
-        value={content}
-        onChangeText={setContent}
-        multiline
-        style={{
-          borderWidth: 1,
-          height: 120,
-          padding: 10
-        }}
-      />
-
-      <TouchableOpacity
-        onPress={createDraft}
-        style={{
-          backgroundColor: '#111',
-          padding: 15,
-          marginTop: 20
-        }}
-      >
-        <Text style={{ color: '#fff', textAlign: 'center' }}>
-          保存草稿
-        </Text>
-      </TouchableOpacity>
-    </View>
-  )
+    <Screen edges={['top', 'bottom']}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.inner}>
+        <Text style={styles.title}>发帖</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="标题"
+          placeholderTextColor={colors.textMuted}
+          value={title}
+          onChangeText={setTitle}
+        />
+        <TextInput
+          style={[styles.input, styles.area]}
+          placeholder="正文"
+          placeholderTextColor={colors.textMuted}
+          value={content}
+          onChangeText={setContent}
+          multiline
+        />
+        <PrimaryButton title="保存并继续编辑" onPress={save} loading={loading} />
+      </KeyboardAvoidingView>
+    </Screen>
+  );
 }
+
+const styles = StyleSheet.create({
+  inner: { flex: 1, padding: space.md },
+  title: { fontSize: 22, fontWeight: '700', marginBottom: space.md, color: colors.text },
+  input: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    padding: 12,
+    fontSize: 16,
+    color: colors.text,
+    backgroundColor: colors.surface,
+    marginBottom: space.md,
+  },
+  area: { minHeight: 160, textAlignVertical: 'top' },
+});

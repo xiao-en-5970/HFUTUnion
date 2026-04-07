@@ -1,16 +1,3 @@
-import { request } from './request';
-
-export function register(username: string, password: string, re_password: string) {
-  return request('/api/v1/user/register', 'POST', {
-    username,
-    password,
-    re_password,
-  });
-}
-
-export function login(username: string, password: string) {
-  return request('/api/v1/user/login', 'POST', {
-    username,
-    password,
-  });
-}
+/** 兼容旧引用；请优先使用 ./user + ./client */
+export { login, register } from './user';
+export { setToken, getToken, clearToken } from './client';
