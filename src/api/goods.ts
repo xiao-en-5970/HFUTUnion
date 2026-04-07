@@ -11,6 +11,7 @@ export type GoodRow = {
   goods_type?: number;
   goods_type_label?: string;
   goods_addr?: string;
+  pickup_addr?: string;
   goods_lat?: number | null;
   goods_lng?: number | null;
   good_status?: number;
@@ -87,4 +88,28 @@ export async function publishGood(id: number) {
 
 export async function offShelfGood(id: number) {
   return apiRequest<unknown>(`/goods/${id}/off-shelf`, { method: 'POST' });
+}
+
+/** GET /user/:id/goods — 本人可含下架商品 */
+export async function listUserGoods(
+  userId: number,
+  page = 1,
+  pageSize = 20,
+) {
+  return apiRequest<{
+    list: GoodRow[];
+    total: number;
+    page: number;
+    page_size: number;
+  }>(`/user/${userId}/goods${buildQuery({ page, pageSize })}`);
+}
+
+export async function updateGood(
+  id: number,
+  body: Record<string, unknown>,
+) {
+  return apiRequest<unknown>(`/goods/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
 }

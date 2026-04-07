@@ -13,6 +13,7 @@ import {
   StatusBar,
   Easing,
   useWindowDimensions,
+  ActivityIndicator,
 } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -21,6 +22,7 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import { colors } from '../theme/colors';
 import { originalImageUrl, thumbnailImageUrl } from '../utils/imageUrl';
 import { downloadImageAsDataUrl } from '../utils/imageDownload';
+import { saveRemoteImageToGallery } from '../utils/saveImageToGallery';
 
 type Props = {
   visible: boolean;
@@ -33,9 +35,12 @@ type Props = {
 function ViewerSlide({
   uri,
   onZoomChange,
+  footerLift = 0,
 }: {
   uri: string;
   onZoomChange?: (zoomed: boolean) => void;
+  /** 底部有分页指示器时上移，避免重叠 */
+  footerLift?: number;
 }) {
   const { width: slideWidth, height: slideHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -48,11 +53,13 @@ function ViewerSlide({
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [lengthUnknown, setLengthUnknown] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const thumbTone = useRef(new Animated.Value(1)).current;
   const pulse = useRef(new Animated.Value(0)).current;
   const pulseLoopRef = useRef<Animated.CompositeAnimation | null>(null);
+  const saveBusyRef = useRef(false);
 
   useEffect(() => {
     setThumbSrc(thumbPreferred);
@@ -61,10 +68,29 @@ function ViewerSlide({
     setLoading(false);
     setProgress(0);
     setLengthUnknown(false);
+    setSaving(false);
+    saveBusyRef.current = false;
     fadeAnim.setValue(0);
     thumbTone.setValue(1);
     pulse.setValue(0);
   }, [uri, thumbPreferred, fadeAnim, thumbTone, pulse]);
+
+  const onDownload = useCallback(async () => {
+    if (!orig || saveBusyRef.current) {
+      return;
+    }
+    saveBusyRef.current = true;
+    setSaving(true);
+    try {
+      await saveRemoteImageToGallery(orig, fullDataUri);
+      Alert.alert('已保存', '图片已保存到相册');
+    } catch (e: any) {
+      Alert.alert('保存失败', e?.message || '请重试');
+    } finally {
+      saveBusyRef.current = false;
+      setSaving(false);
+    }
+  }, [orig, fullDataUri]);
 
   const hasSeparateThumb = thumbPreferred !== orig;
 
@@ -230,6 +256,24 @@ function ViewerSlide({
           </Text>
         </View>
       ) : null}
+
+      <TouchableOpacity
+        style={[
+          styles.downloadFab,
+          { bottom: Math.max(insets.bottom, 10) + footerLift },
+        ]}
+        onPress={() => {
+          onDownload().catch(() => {});
+        }}
+        disabled={saving}
+        activeOpacity={0.85}
+        accessibilityLabel="保存原图到相册">
+        {saving ? (
+          <ActivityIndicator size="small" color="#fff" />
+        ) : (
+          <Ionicons name="download-outline" size={22} color="#fff" />
+        )}
+      </TouchableOpacity>
     </View>
   );
 }
@@ -301,7 +345,11 @@ export default function OriginalImageViewer({
             }}>
             {uris.map((u, idx) => (
               <View key={`${u}-${idx}`} style={{ width: w, height: h }}>
-                <ViewerSlide uri={u} onZoomChange={onZoom} />
+                <ViewerSlide
+                  uri={u}
+                  onZoomChange={onZoom}
+                  footerLift={uris.length > 1 ? 36 : 0}
+                />
               </View>
             ))}
           </ScrollView>
@@ -405,6 +453,19 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textAlign: 'center',
     fontWeight: '600',
+  },
+  downloadFab: {
+    position: 'absolute',
+    right: 12,
+    zIndex: 18,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.22)',
   },
   dots: {
     position: 'absolute',

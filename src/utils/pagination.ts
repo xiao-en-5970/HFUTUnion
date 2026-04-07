@@ -25,7 +25,8 @@ export function hasMorePages(
   if (lastBatchLen < pageSize) {
     return false;
   }
-  if (total != null && currentLen >= total) {
+  // 仅当 total 为明确正数且已拉满时结束；total 为 0 与「本页满条」矛盾时视为计数异常，继续允许翻页
+  if (total !== undefined && total > 0 && currentLen >= total) {
     return false;
   }
   return true;

@@ -32,9 +32,24 @@
 		<false/>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
+		<!-- API_BASE 为 http://api.xiaoen.xyz 时，iOS 默认会拦截明文请求，导致请求发不出去、后端无日志；生产建议改为 https 后删除此项 -->
+		<key>NSExceptionDomains</key>
+		<dict>
+			<key>api.xiaoen.xyz</key>
+			<dict>
+				<key>NSIncludesSubdomains</key>
+				<true/>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+			</dict>
+		</dict>
 	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>发布商品时用于获取当前位置作为交易地点，或在列表中展示与买家的距离。</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>保存图片到相册时需要访问照片库。</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>将预览中的图片保存到你的相册。</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIRequiredDeviceCapabilities</key>

@@ -19,9 +19,9 @@ import { getGood } from '../api/goods';
 import { likeAdd, likeRemove, collectAdd, collectRemove } from '../api/social';
 import Screen from '../components/Screen';
 import PrimaryButton from '../components/PrimaryButton';
+import SocialActionRow from '../components/SocialActionRow';
 import { colors, space } from '../theme/colors';
 import { cacheGet, cacheSet } from '../utils/cacheStorage';
-import Ionicons from 'react-native-vector-icons/Ionicons';
 
 const EXT_GOODS = 4;
 
@@ -155,7 +155,7 @@ export default function GoodDetailScreen({ route, navigation }: any) {
   if (!g) {
     return (
       <Screen scroll={false}>
-        <LoadingMask visible={loading} hint="正在同步商品…" />
+        <LoadingMask visible={loading} hint="加载中…" />
         {!loading ? (
           <Text style={styles.muted}>暂无数据，请下拉重试</Text>
         ) : null}
@@ -257,22 +257,13 @@ export default function GoodDetailScreen({ route, navigation }: any) {
         </View>
 
         <View style={styles.actions}>
-          <TouchableOpacity style={styles.actionBtn} onPress={toggleLike}>
-            <Ionicons
-              name={liked ? 'heart' : 'heart-outline'}
-              size={22}
-              color={liked ? colors.accent : colors.textSecondary}
-            />
-            <Text style={styles.actionText}>赞</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.actionBtn} onPress={toggleCollect}>
-            <Ionicons
-              name={collected ? 'bookmark' : 'bookmark-outline'}
-              size={22}
-              color={collected ? colors.primary : colors.textSecondary}
-            />
-            <Text style={styles.actionText}>收藏</Text>
-          </TouchableOpacity>
+          <SocialActionRow
+            liked={liked}
+            collected={collected}
+            onLike={toggleLike}
+            onCollect={toggleCollect}
+            gap={14}
+          />
         </View>
 
         <Text style={styles.body}>{g.content}</Text>
@@ -340,13 +331,9 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
   },
   actions: {
-    flexDirection: 'row',
     marginTop: 12,
     paddingHorizontal: space.md,
-    gap: 24,
   },
-  actionBtn: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  actionText: { fontSize: 14, color: colors.textSecondary },
   body: { fontSize: 15, lineHeight: 22, color: colors.text, paddingHorizontal: space.md, marginTop: 16 },
   seller: {
     flexDirection: 'row',

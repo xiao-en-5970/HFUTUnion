@@ -1,7 +1,7 @@
 import { API_BASE } from '../config';
 import { getToken } from './client';
 
-type OssSubfolder = 'order_messages' | 'goods';
+type OssSubfolder = 'order_messages' | 'goods' | 'articles';
 
 /** POST /oss/user/:id/... 上传后返回可访问的 URL */
 export async function uploadOssUserFile(

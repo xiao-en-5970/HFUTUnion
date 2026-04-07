@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -6,23 +6,31 @@ import {
   StyleSheet,
   Modal,
   Pressable,
-  Platform,
+  Animated,
+  Easing,
 } from 'react-native';
-import { createMaterialTopTabNavigator } from '@react-navigation/material-top-tabs';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import PostListScreen from './PostListScreen';
-import QuestionListScreen from './QuestionListScreen';
+import CommunityFeedScreen from './CommunityFeedScreen';
 import { colors, radius, space } from '../theme/colors';
-import { CommunityFeedProvider, useCommunityFeedMode } from '../context/CommunityFeedContext';
+import {
+  CommunityFeedProvider,
+  useCommunityFeedMode,
+  type CommunityTab,
+} from '../context/CommunityFeedContext';
 import type { PostFeedMode } from '../api/article';
 
-const Tab = createMaterialTopTabNavigator();
-
 const FEED_OPTIONS: { value: PostFeedMode; label: string; hint: string }[] = [
-  { value: 'latest', label: '最新', hint: 'GET /post — 按发布时间' },
-  { value: 'recommend', label: '推荐', hint: 'GET /search/articles?type=1&sort=combined' },
-  { value: 'hot', label: '热门', hint: 'GET /search/articles?type=1&sort=popularity' },
+  { value: 'latest', label: '最新', hint: '按发帖时间，最新在前' },
+  { value: 'recommend', label: '推荐', hint: '综合排序，猜你可能感兴趣' },
+  { value: 'hot', label: '热门', hint: '近期互动多、更活跃的内容' },
+];
+
+const TABS: { key: CommunityTab; label: string }[] = [
+  { key: 'combined', label: '综合' },
+  { key: 'post', label: '帖子' },
+  { key: 'help', label: '求助' },
+  { key: 'answer', label: '回答' },
 ];
 
 function CommunityHeader() {
@@ -48,10 +56,8 @@ function CommunityHeader() {
         <View style={styles.modalOverlay}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setOpen(false)} />
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>帖子列表模式</Text>
-            <Text style={styles.modalSub}>
-              与 HFUT-Graduation-Project 路由一致：最新走帖子列表，推荐/热门走聚合搜索。
-            </Text>
+            <Text style={styles.modalTitle}>帖子怎么排序</Text>
+            <Text style={styles.modalSub}>选一种浏览方式即可，随时可换。</Text>
             {FEED_OPTIONS.map((opt) => {
               const on = opt.value === feedMode;
               return (
@@ -87,30 +93,81 @@ function CommunityHeader() {
   );
 }
 
-function CommunityTabs() {
+const COMMUNITY_TAB_ENTER_Y = 8;
+
+function CommunityFeedWithFade({ navigation }: { navigation: any }) {
+  const { communityTab } = useCommunityFeedMode();
+  const opacity = useRef(new Animated.Value(1)).current;
+  const translateY = useRef(new Animated.Value(0)).current;
+  const skipFirst = useRef(true);
+
+  useEffect(() => {
+    if (skipFirst.current) {
+      skipFirst.current = false;
+      return;
+    }
+    opacity.setValue(0.88);
+    translateY.setValue(COMMUNITY_TAB_ENTER_Y);
+    Animated.parallel([
+      Animated.timing(opacity, {
+        toValue: 1,
+        duration: 280,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(translateY, {
+        toValue: 0,
+        duration: 280,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [communityTab, opacity, translateY]);
+
   return (
-    <Tab.Navigator
-      screenOptions={{
-        tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.textMuted,
-        tabBarIndicatorStyle: { backgroundColor: colors.primary, height: 3, borderRadius: 2 },
-        tabBarLabelStyle: { fontSize: 15, fontWeight: '600', textTransform: 'none' },
-        tabBarStyle: { backgroundColor: colors.surface, elevation: 0, shadowOpacity: 0 },
-      }}>
-      <Tab.Screen name="帖子" component={PostListScreen} />
-      <Tab.Screen name="提问" component={QuestionListScreen} />
-    </Tab.Navigator>
+    <Animated.View
+      style={[
+        styles.flex,
+        {
+          opacity,
+          transform: [{ translateY }],
+        },
+      ]}>
+      <CommunityFeedScreen navigation={navigation} />
+    </Animated.View>
   );
 }
 
-export default function Community() {
+function CommunityTabBar() {
+  const { communityTab, setCommunityTab } = useCommunityFeedMode();
+
+  return (
+    <View style={styles.tabRow}>
+      {TABS.map(({ key, label }) => {
+        const on = communityTab === key;
+        return (
+          <TouchableOpacity
+            key={key}
+            style={styles.tabHit}
+            onPress={() => setCommunityTab(key)}
+            activeOpacity={0.7}
+            hitSlop={{ top: 8, bottom: 8 }}>
+            <Text style={[styles.tabText, on && styles.tabTextActive]}>{label}</Text>
+            {on ? <View style={styles.tabUnderline} /> : null}
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+}
+
+export default function Community({ navigation }: any) {
   return (
     <CommunityFeedProvider>
       <SafeAreaView style={styles.safe} edges={['top']}>
         <CommunityHeader />
-        <View style={styles.flex}>
-          <CommunityTabs />
-        </View>
+        <CommunityTabBar />
+        <CommunityFeedWithFade navigation={navigation} />
       </SafeAreaView>
     </CommunityFeedProvider>
   );
@@ -142,6 +199,39 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primaryLight,
   },
   modeBtnText: { fontSize: 15, fontWeight: '700', color: colors.primary },
+  tabRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-around',
+    paddingHorizontal: space.sm,
+    paddingTop: 8,
+    paddingBottom: 10,
+    backgroundColor: colors.surface,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  tabHit: {
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingBottom: 2,
+    minWidth: 56,
+  },
+  tabText: {
+    fontSize: 16,
+    color: colors.textSecondary,
+    fontWeight: '400',
+  },
+  tabTextActive: {
+    fontWeight: '700',
+    color: colors.text,
+  },
+  tabUnderline: {
+    marginTop: 8,
+    height: 2,
+    width: '100%',
+    backgroundColor: colors.primary,
+    borderRadius: 1,
+  },
   modalOverlay: {
     flex: 1,
     backgroundColor: colors.overlay,
@@ -161,7 +251,6 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginBottom: space.sm,
   },
-  mono: { fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: 11 },
   modeRow: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -1,5 +1,11 @@
 import { apiRequest, buildQuery } from './client';
 
+/** 与点赞/收藏接口 extType 一致：1帖 2问 3答 4商品 */
+export const EXT_TYPE_POST = 1;
+export const EXT_TYPE_QUESTION = 2;
+export const EXT_TYPE_ANSWER = 3;
+export const EXT_TYPE_GOODS = 4;
+
 /** extType: 1帖 2问 3答 4商品 */
 export async function listComments(
   extType: number,
@@ -51,5 +57,28 @@ export async function collectRemove(extType: number, id: number, collectId = 0) 
   return apiRequest<unknown>(
     `/collect/${extType}/${id}${buildQuery({ collect_id: collectId })}`,
     { method: 'DELETE' },
+  );
+}
+
+/**
+ * 我的收藏列表（需登录）
+ * GET /user/collects?ext_type=&page=&page_size=
+ */
+export async function listUserCollects(
+  extType: number,
+  page = 1,
+  pageSize = 20,
+) {
+  return apiRequest<{
+    list: unknown[];
+    total: number;
+    page: number;
+    page_size: number;
+  }>(
+    `/user/collects${buildQuery({
+      ext_type: extType,
+      page,
+      page_size: pageSize,
+    })}`,
   );
 }

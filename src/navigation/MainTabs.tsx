@@ -2,6 +2,7 @@ import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import TabTransitionContainer from '../components/TabTransitionContainer';
 import HomeScreen from '../screens/HomeScreen';
 import Community from '../screens/Community';
 import ChatListScreen from '../screens/ChatListScreen';
@@ -21,6 +22,7 @@ export default function MainTabs() {
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
+        tabBarHideOnKeyboard: true,
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textMuted,
         tabBarStyle: {
@@ -39,54 +41,79 @@ export default function MainTabs() {
       }}>
       <Tab.Screen
         name="Home"
-        component={HomeScreen}
         options={{
           title: '发现',
+          /**
+           * 发现页有搜索框；若全局 tabBarHideOnKeyboard 为 true，从其它 Tab 带键盘切回时
+           * isKeyboardShown 仍为 true，底栏会一直隐藏。此 Tab 固定显示底栏。
+           */
+          tabBarHideOnKeyboard: false,
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="compass-outline" color={color} size={size} />
           ),
-        }}
-      />
+        }}>
+        {() => (
+          <TabTransitionContainer>
+            <HomeScreen />
+          </TabTransitionContainer>
+        )}
+      </Tab.Screen>
       <Tab.Screen
         name="Community"
-        component={Community}
         options={{
           title: '社区',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="chatbubbles-outline" color={color} size={size} />
           ),
-        }}
-      />
+        }}>
+        {() => (
+          <TabTransitionContainer>
+            <Community />
+          </TabTransitionContainer>
+        )}
+      </Tab.Screen>
       <Tab.Screen
         name="Chat"
-        component={ChatListScreen}
         options={{
           title: '聊天',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="chatbubble-ellipses-outline" color={color} size={size} />
           ),
-        }}
-      />
+        }}>
+        {() => (
+          <TabTransitionContainer>
+            <ChatListScreen />
+          </TabTransitionContainer>
+        )}
+      </Tab.Screen>
       <Tab.Screen
         name="Market"
-        component={GoodListScreen}
         options={{
           title: '市集',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="bag-handle-outline" color={color} size={size} />
           ),
-        }}
-      />
+        }}>
+        {() => (
+          <TabTransitionContainer>
+            <GoodListScreen />
+          </TabTransitionContainer>
+        )}
+      </Tab.Screen>
       <Tab.Screen
         name="Profile"
-        component={ProfileScreen}
         options={{
           title: '我的',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="person-outline" color={color} size={size} />
           ),
-        }}
-      />
+        }}>
+        {() => (
+          <TabTransitionContainer>
+            <ProfileScreen />
+          </TabTransitionContainer>
+        )}
+      </Tab.Screen>
     </Tab.Navigator>
   );
 }

@@ -5,18 +5,17 @@ import {
   TextInput,
   StyleSheet,
   ScrollView,
-  TouchableOpacity,
   Image,
   Alert,
   RefreshControl,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import Ionicons from 'react-native-vector-icons/Ionicons';
 import { getPost } from '../api/article';
 import { listComments, postComment, likeAdd, likeRemove, collectAdd, collectRemove } from '../api/social';
 import Screen from '../components/Screen';
 import PrimaryButton from '../components/PrimaryButton';
 import LoadingMask from '../components/LoadingMask';
+import SocialActionRow from '../components/SocialActionRow';
 import { colors, radius, space } from '../theme/colors';
 import { cacheGet, cacheSet } from '../utils/cacheStorage';
 
@@ -175,22 +174,13 @@ export default function PostDetailScreen({ route, navigation }: any) {
         ) : null}
 
         <View style={styles.actions}>
-          <TouchableOpacity style={styles.actionBtn} onPress={toggleLike}>
-            <Ionicons
-              name={liked ? 'heart' : 'heart-outline'}
-              size={22}
-              color={liked ? colors.accent : colors.textSecondary}
-            />
-            <Text style={styles.actionText}>赞</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.actionBtn} onPress={toggleCollect}>
-            <Ionicons
-              name={collected ? 'bookmark' : 'bookmark-outline'}
-              size={22}
-              color={collected ? colors.primary : colors.textSecondary}
-            />
-            <Text style={styles.actionText}>收藏</Text>
-          </TouchableOpacity>
+          <SocialActionRow
+            liked={liked}
+            collected={collected}
+            onLike={toggleLike}
+            onCollect={toggleCollect}
+            gap={14}
+          />
         </View>
 
         <Text style={styles.section}>评论</Text>
@@ -231,12 +221,8 @@ const styles = StyleSheet.create({
   images: { marginTop: 12, gap: 8 },
   img: { width: '100%', height: 200, borderRadius: radius.sm, marginBottom: 8 },
   actions: {
-    flexDirection: 'row',
     marginTop: 20,
-    gap: 24,
   },
-  actionBtn: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  actionText: { fontSize: 14, color: colors.textSecondary },
   section: {
     marginTop: 24,
     fontSize: 17,

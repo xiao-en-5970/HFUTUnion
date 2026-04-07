@@ -152,7 +152,7 @@ export default function ChatListScreen({ navigation }: any) {
       <LoadingMask visible={loading && list.length === 0} hint="正在加载会话…" />
       <View style={styles.topBar}>
         <Text style={styles.pageTitle}>聊天</Text>
-        <Text style={styles.pageHint}>订单内沟通 · 与后台订单状态一致</Text>
+        <Text style={styles.pageHint}>订单相关的沟通集中在这里</Text>
       </View>
 
       <View style={styles.tabs}>

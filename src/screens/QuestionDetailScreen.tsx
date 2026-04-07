@@ -2,7 +2,6 @@ import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
-  TextInput,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
@@ -11,15 +10,16 @@ import {
   RefreshControl,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import Ionicons from 'react-native-vector-icons/Ionicons';
 import {
   getQuestion,
   listQuestionAnswers,
 } from '../api/article';
-import { listComments, postComment, likeAdd, likeRemove, collectAdd, collectRemove } from '../api/social';
+import { likeAdd, likeRemove, collectAdd, collectRemove } from '../api/social';
+import ArticleListTags from '../components/ArticleListTags';
 import Screen from '../components/Screen';
 import PrimaryButton from '../components/PrimaryButton';
 import LoadingMask from '../components/LoadingMask';
+import SocialActionRow from '../components/SocialActionRow';
 import { colors, radius, space } from '../theme/colors';
 import { cacheGet, cacheSet } from '../utils/cacheStorage';
 
@@ -27,11 +27,11 @@ const EXT_Q = 2;
 
 export default function QuestionDetailScreen({ route, navigation }: any) {
   const id = Number(route.params?.id);
-  const cacheKey = `question:detail:v1:${id}`;
+  const cacheKey = `question:detail:v2:${id}`;
   const [q, setQ] = useState<any>(null);
   const [answers, setAnswers] = useState<any[]>([]);
-  const [comments, setComments] = useState<any[]>([]);
-  const [text, setText] = useState('');
+  const [liked, setLiked] = useState(false);
+  const [collected, setCollected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -41,13 +41,13 @@ export default function QuestionDetailScreen({ route, navigation }: any) {
       const cached = await cacheGet<{
         q: any;
         answers: any[];
-        comments: any[];
       }>(cacheKey);
       if (cached?.q) {
         hadCache = true;
         setQ(cached.q);
         setAnswers(cached.answers || []);
-        setComments(cached.comments || []);
+        setLiked(Boolean(cached.q.is_liked ?? cached.q.liked));
+        setCollected(Boolean(cached.q.is_collected ?? cached.q.collected));
         setLoading(false);
       }
     } catch {
@@ -59,13 +59,12 @@ export default function QuestionDetailScreen({ route, navigation }: any) {
     try {
       const qu = await getQuestion(id);
       setQ(qu);
+      setLiked(Boolean(qu.is_liked ?? qu.liked));
+      setCollected(Boolean(qu.is_collected ?? qu.collected));
       const an = await listQuestionAnswers(id, 1, 50);
       const al = an.list || [];
       setAnswers(al);
-      const c = await listComments(EXT_Q, id, 1, 50);
-      const cl = c.list || [];
-      setComments(cl);
-      await cacheSet(cacheKey, { q: qu, answers: al, comments: cl });
+      await cacheSet(cacheKey, { q: qu, answers: al });
     } catch (e: any) {
       if (!hadCache) {
         Alert.alert('加载失败', e?.message);
@@ -82,30 +81,33 @@ export default function QuestionDetailScreen({ route, navigation }: any) {
     }, [id]),
   );
 
-  const sendComment = async () => {
-    if (!text.trim()) {
-      return;
-    }
+  const toggleLike = async () => {
     try {
-      await postComment(EXT_Q, id, { content: text.trim() });
-      setText('');
+      if (liked) {
+        await likeRemove(EXT_Q, id);
+        setLiked(false);
+      } else {
+        await likeAdd(EXT_Q, id);
+        setLiked(true);
+      }
       load();
     } catch (e: any) {
-      Alert.alert('失败', e?.message);
+      Alert.alert('操作失败', e?.message);
     }
   };
 
-  const likeQ = async () => {
+  const toggleCollect = async () => {
     try {
-      await likeAdd(EXT_Q, id);
+      if (collected) {
+        await collectRemove(EXT_Q, id, 0);
+        setCollected(false);
+      } else {
+        await collectAdd(EXT_Q, id, 0);
+        setCollected(true);
+      }
       load();
     } catch (e: any) {
-      try {
-        await likeRemove(EXT_Q, id);
-        load();
-      } catch {
-        Alert.alert(e?.message);
-      }
+      Alert.alert('操作失败', e?.message);
     }
   };
 
@@ -151,23 +153,21 @@ export default function QuestionDetailScreen({ route, navigation }: any) {
           />
         }
         contentContainerStyle={styles.pad}>
-        <View style={styles.row}>
-          <Text style={styles.badge}>问</Text>
-          <TouchableOpacity onPress={likeQ} style={styles.likeRow}>
-            <Ionicons name="heart-outline" size={20} color={colors.accent} />
-            <Text style={styles.small}>赞</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={async () => {
-              try {
-                await collectAdd(EXT_Q, id, 0);
-                load();
-              } catch (e: any) {
-                Alert.alert(e?.message);
-              }
-            }}>
-            <Ionicons name="bookmark-outline" size={20} color={colors.primary} />
-          </TouchableOpacity>
+        <View style={styles.qHeaderRow}>
+          <View style={styles.qTagsWrap}>
+            <ArticleListTags
+              kind="question"
+              schoolId={q.school_id}
+              compact
+            />
+          </View>
+          <SocialActionRow
+            liked={liked}
+            collected={collected}
+            onLike={toggleLike}
+            onCollect={toggleCollect}
+            gap={10}
+          />
         </View>
         <Text style={styles.title}>{q.title}</Text>
         <Text style={styles.meta}>{q.author?.username}</Text>
@@ -185,6 +185,9 @@ export default function QuestionDetailScreen({ route, navigation }: any) {
           onPress={() => navigation.navigate('AnswerCompose', { questionId: id })}
           style={styles.answerBtn}
         />
+        <Text style={styles.noQuestionComments}>
+          求助仅支持通过「写回答」回应，不支持对求助本身发表评论。
+        </Text>
 
         <Text style={styles.section}>回答 · {answers.length}</Text>
         {answers.map((a) => (
@@ -192,32 +195,19 @@ export default function QuestionDetailScreen({ route, navigation }: any) {
             key={a.id}
             style={styles.ansCard}
             onPress={() => navigation.navigate('AnswerDetail', { id: a.id })}>
-            <Text style={styles.ansAuthor}>{a.author?.username}</Text>
+            <ArticleListTags
+              kind="answer"
+              schoolId={a.school_id}
+              compact
+            />
+            <View style={styles.ansHead}>
+              <Text style={styles.ansAuthor}>{a.author?.username}</Text>
+            </View>
             <Text numberOfLines={3} style={styles.ansBody}>
               {a.content || a.title}
             </Text>
           </TouchableOpacity>
         ))}
-
-        <Text style={styles.section}>评论</Text>
-        {comments.map((c) => (
-          <View key={c.id} style={styles.cmt}>
-            <Text style={styles.cmtUser}>{c.author?.username}</Text>
-            <Text style={styles.cmtBody}>{c.content}</Text>
-          </View>
-        ))}
-
-        <View style={styles.inputRow}>
-          <TextInput
-            style={styles.input}
-            placeholder="评论提问…"
-            placeholderTextColor={colors.textMuted}
-            value={text}
-            onChangeText={setText}
-            multiline
-          />
-          <PrimaryButton title="发送" onPress={sendComment} style={styles.sendBtn} />
-        </View>
       </ScrollView>
     </Screen>
   );
@@ -228,24 +218,26 @@ const styles = StyleSheet.create({
   emptyWrap: { flex: 1, position: 'relative' },
   emptyScroll: { flexGrow: 1, justifyContent: 'center', padding: space.md },
   pad: { padding: space.md, paddingBottom: 40 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 16, marginBottom: 8 },
-  badge: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: colors.primary,
-    backgroundColor: colors.primaryLight,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
+  qHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginBottom: 8,
   },
-  likeRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  small: { fontSize: 13, color: colors.textSecondary },
+  qTagsWrap: { flex: 1, minWidth: 0 },
   title: { fontSize: 22, fontWeight: '700', color: colors.text },
   meta: { marginTop: 8, fontSize: 13, color: colors.textSecondary },
   body: { marginTop: 16, fontSize: 16, lineHeight: 24, color: colors.text },
   images: { marginTop: 12 },
   img: { width: '100%', height: 180, borderRadius: radius.sm, marginBottom: 8 },
   answerBtn: { marginTop: 16 },
+  noQuestionComments: {
+    marginTop: 10,
+    fontSize: 13,
+    lineHeight: 20,
+    color: colors.textMuted,
+  },
   section: {
     marginTop: 24,
     fontSize: 17,
@@ -261,25 +253,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
   },
+  ansHead: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
   ansAuthor: { fontSize: 13, fontWeight: '600', color: colors.primary },
   ansBody: { marginTop: 6, fontSize: 15, color: colors.text },
-  cmt: {
-    paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-  },
-  cmtUser: { fontSize: 13, fontWeight: '600', color: colors.textSecondary },
-  cmtBody: { marginTop: 4, fontSize: 15, color: colors.text },
   muted: { color: colors.textMuted },
-  inputRow: { marginTop: 16, gap: 10 },
-  input: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.sm,
-    padding: 10,
-    minHeight: 44,
-    color: colors.text,
-    backgroundColor: colors.surface,
-  },
-  sendBtn: { paddingVertical: 10 },
 });

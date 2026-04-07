@@ -72,7 +72,7 @@ export default function SchoolBindScreen({ navigation }: any) {
         setCaptchaImageUri(`data:image/png;base64,${img}`);
       }
     } catch (e: any) {
-      Alert.alert('获取验证码失败', e?.message || '请检查学校是否配置 captcha_url / login_url');
+      Alert.alert('获取验证码失败', e?.message || '请稍后再试');
     } finally {
       setLoadingCaptcha(false);
     }
@@ -241,7 +241,7 @@ export default function SchoolBindScreen({ navigation }: any) {
           keyboardShouldPersistTaps="handled">
           <Text style={styles.title}>学籍认证</Text>
           <Text style={styles.hint}>
-            与后台「绑定学校」一致：根据学校配置的动态字段展示；若含验证码，将拉取图片并需填写后提交。
+            按页面提示填写学号、密码等信息。若需要图形验证码，先点「刷新验证码」再填写。
           </Text>
 
           <Text style={styles.section}>选择学校</Text>

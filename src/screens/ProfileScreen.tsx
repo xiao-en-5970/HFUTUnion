@@ -204,6 +204,42 @@ export default function ProfileScreen({ navigation }: any) {
           </View>
         </TouchableOpacity>
 
+        <TouchableOpacity
+          style={[styles.orderEntry, styles.orderEntryFollow]}
+          activeOpacity={0.85}
+          onPress={() => navigation.navigate('MyCollects')}>
+          <View style={styles.orderEntryRow}>
+            <View style={styles.orderIconWrap}>
+              <Ionicons name="bookmark-outline" size={24} color={colors.primary} />
+            </View>
+            <View style={styles.orderEntryText}>
+              <Text style={styles.orderEntryTitle}>我的收藏</Text>
+              <Text style={styles.orderEntrySub}>
+                帖子 · 求助 · 回答 · 商品
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.orderEntry, styles.orderEntryFollow]}
+          activeOpacity={0.85}
+          onPress={() => navigation.navigate('MyContent')}>
+          <View style={styles.orderEntryRow}>
+            <View style={styles.orderIconWrap}>
+              <Ionicons name="albums-outline" size={24} color={colors.primary} />
+            </View>
+            <View style={styles.orderEntryText}>
+              <Text style={styles.orderEntryTitle}>我的内容</Text>
+              <Text style={styles.orderEntrySub}>
+                帖子 · 求助 · 回答 · 商品 · 数据与编辑
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+          </View>
+        </TouchableOpacity>
+
         <View style={styles.menu}>
           {menu.map((m) => (
             <TouchableOpacity
@@ -282,6 +318,7 @@ const styles = StyleSheet.create({
   },
   certBadgeText: { fontSize: 12, fontWeight: '700', color: '#047857' },
   warn: { textAlign: 'center', marginTop: 6, color: colors.accent, fontSize: 13 },
+  orderEntryFollow: { marginTop: 12 },
   orderEntry: {
     marginTop: space.lg,
     marginHorizontal: space.md,

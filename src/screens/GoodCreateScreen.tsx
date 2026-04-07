@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -16,7 +16,7 @@ import DraggableFlatList, {
 import { useFocusEffect } from '@react-navigation/native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import { createGood, publishGood } from '../api/goods';
+import { createGood, getGood, publishGood, updateGood } from '../api/goods';
 import { uploadOssUserFile } from '../api/oss';
 import { fetchUserInfo, fetchUserLocations, type UserLocation } from '../api/user';
 import Screen from '../components/Screen';
@@ -41,7 +41,13 @@ function newImageKey() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
 }
 
-export default function GoodCreateScreen({ navigation }: any) {
+function isRemoteUrl(uri: string) {
+  return /^https?:\/\//i.test(uri);
+}
+
+export default function GoodCreateScreen({ navigation, route }: any) {
+  const goodId = route.params?.goodId as number | undefined;
+
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [priceYuan, setPriceYuan] = useState('');
@@ -59,6 +65,83 @@ export default function GoodCreateScreen({ navigation }: any) {
   const [gpsAddrLabel, setGpsAddrLabel] = useState('');
   const [gpsLoading, setGpsLoading] = useState(false);
 
+  useLayoutEffect(() => {
+    navigation.setOptions({ title: goodId ? '编辑商品' : '发布闲置' });
+  }, [goodId, navigation]);
+
+  useEffect(() => {
+    if (!goodId) {
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const [g, rows] = await Promise.all([
+          getGood(goodId),
+          fetchUserLocations(),
+        ]);
+        if (cancelled) {
+          return;
+        }
+        setLocations(rows);
+        setLocationsLoading(false);
+        setTitle(g.title || '');
+        setContent(g.content || '');
+        setPriceYuan(String((g.price ?? 0) / 100));
+        setStock(String(g.stock ?? 1));
+        if (g.images?.length) {
+          setImages(
+            g.images.map((uri) => ({ key: newImageKey(), uri })),
+          );
+        }
+        const addr = (g.goods_addr || g.pickup_addr || '').trim();
+        const lat = g.goods_lat ?? null;
+        const lng = g.goods_lng ?? null;
+        const near = (a: number, b: number) => Math.abs(a - b) < 0.00025;
+        const matchSaved = rows.find((l) => {
+          if (addr.length > 0) {
+            if (l.addr === addr) {
+              return true;
+            }
+            if (addr.length > 4 && (addr.includes(l.addr) || l.addr.includes(addr))) {
+              return true;
+            }
+          }
+          if (
+            lat != null &&
+            lng != null &&
+            l.lat != null &&
+            l.lng != null
+          ) {
+            return near(l.lat, lat) && near(l.lng, lng);
+          }
+          return false;
+        });
+        if (matchSaved) {
+          setUseGpsForGood(false);
+          setSelectedLocationId(matchSaved.id);
+          setGpsLat(null);
+          setGpsLng(null);
+          setGpsAddrLabel('');
+        } else if (lat != null && lng != null) {
+          setUseGpsForGood(true);
+          setGpsLat(lat);
+          setGpsLng(lng);
+          setGpsAddrLabel(addr || `当前定位（${lat.toFixed(5)}, ${lng.toFixed(5)}）`);
+          setSelectedLocationId(null);
+        } else {
+          setUseGpsForGood(false);
+          setSelectedLocationId(null);
+        }
+      } catch (e: any) {
+        Alert.alert('加载失败', e?.message || '');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [goodId]);
+
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
@@ -70,6 +153,9 @@ export default function GoodCreateScreen({ navigation }: any) {
             return;
           }
           setLocations(rows);
+          if (goodId) {
+            return;
+          }
           if (!useGpsForGood) {
             if (rows.length) {
               setSelectedLocationId((prev) => {
@@ -96,7 +182,7 @@ export default function GoodCreateScreen({ navigation }: any) {
       return () => {
         cancelled = true;
       };
-    }, [useGpsForGood]),
+    }, [goodId, useGpsForGood]),
   );
 
   const pickImages = async () => {
@@ -192,7 +278,7 @@ export default function GoodCreateScreen({ navigation }: any) {
 
     if (useGpsForGood) {
       if (gpsLat == null || gpsLng == null) {
-        Alert.alert('提示', '请先使用「当前定位」获取经纬度，或从地址簿选择一条地址');
+        Alert.alert('提示', '请先使用「当前定位」，或从地址簿选择一条地址');
         return;
       }
     } else {
@@ -216,37 +302,71 @@ export default function GoodCreateScreen({ navigation }: any) {
       const urls: string[] = [];
       for (let i = 0; i < images.length; i++) {
         const a = images[i];
-        const url = await uploadOssUserFile(
-          uid,
-          a.uri,
-          a.type || 'image/jpeg',
-          a.fileName || `good_${i}.jpg`,
-          'goods',
-        );
-        urls.push(url);
+        if (isRemoteUrl(a.uri)) {
+          urls.push(a.uri);
+        } else {
+          const url = await uploadOssUserFile(
+            uid,
+            a.uri,
+            a.type || 'image/jpeg',
+            a.fileName || `good_${i}.jpg`,
+            'goods',
+          );
+          urls.push(url);
+        }
       }
       const cents = Math.round(py * 100);
+      const stockNum = Math.max(0, parseInt(stock, 10) || 0);
 
-      const base = {
+      const common = {
         title: title.trim(),
         content: content.trim(),
         goods_type: 1,
         price: cents,
         marked_price: 0,
-        stock: Math.max(0, parseInt(stock, 10) || 0),
-        ...(urls.length > 0 ? { images: urls } : {}),
+        stock: stockNum,
       } as const;
+
+      if (goodId) {
+        await updateGood(
+          goodId,
+          useGpsForGood
+            ? {
+                ...common,
+                images: urls,
+                goods_addr: gpsAddrLabel,
+                goods_lat: gpsLat,
+                goods_lng: gpsLng,
+              }
+            : {
+                ...common,
+                images: urls,
+                goods_addr: selected!.addr,
+                goods_lat: selected!.lat ?? null,
+                goods_lng: selected!.lng ?? null,
+              },
+        );
+        Alert.alert('已保存', '', [
+          {
+            text: '确定',
+            onPress: () => navigation.replace('GoodDetail', { id: goodId }),
+          },
+        ]);
+        return;
+      }
 
       const { id } = await createGood(
         useGpsForGood
           ? {
-              ...base,
+              ...common,
+              ...(urls.length > 0 ? { images: urls } : {}),
               goods_addr: gpsAddrLabel,
               goods_lat: gpsLat,
               goods_lng: gpsLng,
             }
           : {
-              ...base,
+              ...common,
+              ...(urls.length > 0 ? { images: urls } : {}),
               user_location_id: selected!.id,
               goods_addr: selected!.addr,
               goods_lat: selected!.lat ?? null,
@@ -258,7 +378,7 @@ export default function GoodCreateScreen({ navigation }: any) {
         { text: '确定', onPress: () => navigation.replace('GoodDetail', { id }) },
       ]);
     } catch (e: any) {
-      Alert.alert('失败', e?.message || '请先绑定学校');
+      Alert.alert('失败', e?.message || '请先在「我的」完成学校认证');
     } finally {
       setLoading(false);
     }
@@ -272,7 +392,7 @@ export default function GoodCreateScreen({ navigation }: any) {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
         nestedScrollEnabled>
-        <Text style={styles.title}>发布闲置</Text>
+        <Text style={styles.title}>{goodId ? '编辑商品' : '发布闲置'}</Text>
         <Text style={styles.hint}>
           价格单位：元；上架后出现在市集。商品图可不传（0 张即可发布），有图更易成交。
         </Text>
@@ -304,8 +424,7 @@ export default function GoodCreateScreen({ navigation }: any) {
 
         <Text style={styles.label}>商品交易地址</Text>
         <Text style={styles.addrHint}>
-          与后台一致：从地址簿选择已保存地址（含坐标时市集可算距离），或使用当前 GPS
-          定位。无地址时请先到「收货地址」添加。
+          从地址簿选已保存的地址（有位置信息时，市集能显示距离），或使用「当前定位」。没有地址时请先到「收货地址」里添加。
         </Text>
 
         <View style={styles.addrActions}>
@@ -415,7 +534,11 @@ export default function GoodCreateScreen({ navigation }: any) {
           onChangeText={setStock}
           keyboardType="number-pad"
         />
-        <PrimaryButton title="发布上架" onPress={submit} loading={loading} />
+        <PrimaryButton
+          title={goodId ? '保存修改' : '发布上架'}
+          onPress={submit}
+          loading={loading}
+        />
       </ScrollView>
     </Screen>
   );

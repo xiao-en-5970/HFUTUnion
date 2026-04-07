@@ -31,6 +31,7 @@ import {
   requestGpsPosition,
 } from '../utils/locationGps';
 import { cacheGet, cacheSet } from '../utils/cacheStorage';
+import CreateFab from '../components/CreateFab';
 import LoadingMask from '../components/LoadingMask';
 import {
   PAGE_SIZE,
@@ -212,7 +213,7 @@ export default function GoodListScreen({ navigation }: any) {
           <Ionicons name="search-outline" size={20} color={colors.textMuted} />
           <TextInput
             style={styles.searchInput}
-            placeholder="搜索商品标题（模糊）"
+            placeholder="搜索商品标题"
             placeholderTextColor={colors.textMuted}
             value={keyword}
             onChangeText={(t) => {
@@ -284,7 +285,7 @@ export default function GoodListScreen({ navigation }: any) {
             ) : null
           }
           ListEmptyComponent={
-            <Text style={styles.empty}>暂无商品，参考拼多多闲置区发布一件试试</Text>
+            <Text style={styles.empty}>暂无商品，发布一件闲置试试吧</Text>
           }
           renderItem={({ item }) => {
             const dist =
@@ -368,13 +369,7 @@ export default function GoodListScreen({ navigation }: any) {
           }}
         />
 
-        <TouchableOpacity
-          style={[styles.fab, { bottom: tabBarHeight + 12 }]}
-          activeOpacity={0.88}
-          onPress={() => navigation.navigate('GoodCreate')}
-          accessibilityLabel="发布闲置">
-          <Ionicons name="add" size={34} color="#fff" />
-        </TouchableOpacity>
+        <CreateFab onPress={() => navigation.navigate('GoodCreate')} accessibilityLabel="发布闲置" />
       </View>
 
       <Modal visible={pickerOpen} animationType="fade" transparent>
@@ -383,7 +378,7 @@ export default function GoodListScreen({ navigation }: any) {
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>市集距离参考</Text>
             <Text style={styles.modalHint}>
-              用于计算列表中「距参考点」；可选地址簿中一条，或使用当前 GPS。
+              用来算商品与你的距离。可从地址簿选一条，或用当前定位。
             </Text>
 
             <TouchableOpacity
@@ -406,7 +401,7 @@ export default function GoodListScreen({ navigation }: any) {
               keyExtractor={(i) => String(i.id)}
               keyboardShouldPersistTaps="handled"
               ListEmptyComponent={
-                <Text style={styles.modalEmpty}>暂无保存地址，可先下方入口添加</Text>
+                <Text style={styles.modalEmpty}>还没有保存的地址，可在下方管理地址后添加</Text>
               }
               renderItem={({ item }) => (
                 <TouchableOpacity
@@ -514,21 +509,6 @@ const styles = StyleSheet.create({
   row: { justifyContent: 'space-between', paddingHorizontal: space.md },
   list: { paddingBottom: 32 },
   listFooter: { marginVertical: 16 },
-  fab: {
-    position: 'absolute',
-    alignSelf: 'center',
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    backgroundColor: colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 6,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-  },
   card: {
     width: '48%',
     backgroundColor: colors.surface,
