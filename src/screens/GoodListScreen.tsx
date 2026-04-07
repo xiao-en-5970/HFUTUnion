@@ -13,7 +13,7 @@ import {
   Alert,
   TextInput,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { listGoods, GoodRow, type GoodsListSort } from '../api/goods';
@@ -55,7 +55,8 @@ function discountPercent(marked: number, price: number): number {
   return Math.min(99, Math.round((1 - price / marked) * 100));
 }
 
-export default function GoodListScreen({ navigation }: any) {
+export default function GoodListScreen() {
+  const navigation = useNavigation<any>();
   const tabBarHeight = useBottomTabBarHeight();
   const [list, setList] = useState<GoodRow[]>([]);
   const [listLoading, setListLoading] = useState(true);

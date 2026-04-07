@@ -8,7 +8,7 @@ import {
   StyleSheet,
   RefreshControl,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {
   fetchChatConversationsWithUnread,
@@ -57,7 +57,8 @@ function tabBarBadgeFromTotal(total: number): string | number | undefined {
   return total > 99 ? '99+' : total;
 }
 
-export default function ChatListScreen({ navigation }: any) {
+export default function ChatListScreen() {
+  const navigation = useNavigation<any>();
   const [list, setList] = useState<ChatConversation[]>([]);
   const [tab, setTab] = useState<ChatTab>('withSellers');
   const [loading, setLoading] = useState(true);

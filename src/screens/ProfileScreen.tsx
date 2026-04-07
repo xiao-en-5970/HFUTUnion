@@ -9,7 +9,7 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import ImageViewing from 'react-native-image-viewing';
 import ImagePicker from 'react-native-image-crop-picker';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -29,7 +29,8 @@ const menuAll = [
   { key: 'addr', label: '收货地址', icon: 'location-outline', nav: 'AddressList' as const },
 ] as const;
 
-export default function ProfileScreen({ navigation }: any) {
+export default function ProfileScreen() {
+  const navigation = useNavigation<any>();
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);

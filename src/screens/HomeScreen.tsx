@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { searchArticles, SearchArticleItem } from '../api/search';
@@ -29,7 +30,8 @@ const HOME_SEARCH_CACHE_PREFIX = 'home:search:v2';
 
 type HomeSearchSort = 'combined' | 'latest';
 
-export default function HomeScreen({ navigation }: any) {
+export default function HomeScreen() {
+  const navigation = useNavigation<any>();
   const tabBarHeight = useBottomTabBarHeight();
   const [q, setQ] = useState('');
   /** 未搜索前为落地页（仅搜索框）；搜索后为结果页（顶栏 + 列表） */

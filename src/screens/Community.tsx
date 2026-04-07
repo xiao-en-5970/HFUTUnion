@@ -9,6 +9,7 @@ import {
   Animated,
   Easing,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import CommunityFeedScreen from './CommunityFeedScreen';
@@ -161,7 +162,8 @@ function CommunityTabBar() {
   );
 }
 
-export default function Community({ navigation }: any) {
+export default function Community() {
+  const navigation = useNavigation<any>();
   return (
     <CommunityFeedProvider>
       <SafeAreaView style={styles.safe} edges={['top']}>
