@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import OriginalImageViewer from '../components/OriginalImageViewer';
 import LoadingMask from '../components/LoadingMask';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { createOrder } from '../api/orders';
 import { getGood } from '../api/goods';
 import { likeAdd, likeRemove, collectAdd, collectRemove } from '../api/social';
@@ -39,7 +39,36 @@ function discountPercent(marked: number, price: number): number {
   return Math.min(99, Math.round((1 - price / marked) * 100));
 }
 
-export default function GoodDetailScreen({ route, navigation }: any) {
+function normalizeFlag(v: unknown): boolean {
+  if (v === true || v === 1 || v === '1') {
+    return true;
+  }
+  return false;
+}
+
+function normalizeGoodFlags(row: any) {
+  if (!row) {
+    return row;
+  }
+  return {
+    ...row,
+    is_liked: normalizeFlag(row.is_liked ?? row.liked),
+    is_collected: normalizeFlag(row.is_collected ?? row.collected),
+  };
+}
+
+function mergeGoodFromApi(row: any, prev: any) {
+  return normalizeGoodFlags({
+    ...prev,
+    ...row,
+    like_count: row.like_count ?? prev.like_count,
+    collect_count: row.collect_count ?? prev.collect_count,
+    view_count: row.view_count ?? prev.view_count,
+  });
+}
+
+export default function GoodDetailScreen({ route }: any) {
+  const navigation = useNavigation<any>();
   const id = Number(route.params?.id);
   const [g, setG] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -48,8 +77,6 @@ export default function GoodDetailScreen({ route, navigation }: any) {
   const [imgViewerVisible, setImgViewerVisible] = useState(false);
   const [imgViewerIndex, setImgViewerIndex] = useState(0);
   const [galleryIndex, setGalleryIndex] = useState(0);
-  const [liked, setLiked] = useState(false);
-  const [collected, setCollected] = useState(false);
 
   const cacheKey = `good:detail:v1:${id}`;
   const viewabilityConfig = useRef({
@@ -71,9 +98,7 @@ export default function GoodDetailScreen({ route, navigation }: any) {
       const cached = await cacheGet<any>(cacheKey);
       if (cached && typeof cached === 'object') {
         hadCache = true;
-        setG(cached);
-        setLiked(Boolean(cached.is_liked ?? cached.liked));
-        setCollected(Boolean(cached.is_collected ?? cached.collected));
+        setG(normalizeGoodFlags(cached));
         setLoading(false);
       } else {
         setLoading(true);
@@ -83,10 +108,9 @@ export default function GoodDetailScreen({ route, navigation }: any) {
     }
     try {
       const row = await getGood(id);
-      setG(row);
-      setLiked(Boolean(row.is_liked ?? row.liked));
-      setCollected(Boolean(row.is_collected ?? row.collected));
-      await cacheSet(cacheKey, row);
+      const normalized = normalizeGoodFlags(row);
+      setG(normalized);
+      await cacheSet(cacheKey, normalized);
     } catch (e: any) {
       if (!hadCache) {
         Alert.alert('加载失败', e?.message || '网络异常');
@@ -104,32 +128,81 @@ export default function GoodDetailScreen({ route, navigation }: any) {
   );
 
   const toggleLike = async () => {
+    if (!g) {
+      return;
+    }
+    const was = normalizeFlag(g.is_liked ?? g.liked);
+    const snapshot = { ...g };
+    const nextLiked = !was;
+    setG((row: any) =>
+      row
+        ? {
+            ...row,
+            is_liked: nextLiked,
+            liked: undefined,
+            like_count: Math.max(0, (row.like_count ?? 0) + (nextLiked ? 1 : -1)),
+          }
+        : row,
+    );
     try {
-      if (liked) {
+      if (was) {
         await likeRemove(EXT_GOODS, id);
-        setLiked(false);
       } else {
         await likeAdd(EXT_GOODS, id);
-        setLiked(true);
       }
-      load();
+      const row = await getGood(id);
+      setG((prev: any) => {
+        if (!prev) {
+          return prev;
+        }
+        const merged = mergeGoodFromApi(row, prev);
+        void cacheSet(cacheKey, merged);
+        return merged;
+      });
     } catch (e: any) {
-      Alert.alert('操作失败', e?.message || '');
+      setG(snapshot);
+      Alert.alert('操作失败', e?.message ?? '');
     }
   };
 
   const toggleCollect = async () => {
+    if (!g) {
+      return;
+    }
+    const was = normalizeFlag(g.is_collected ?? g.collected);
+    const snapshot = { ...g };
+    const nextCol = !was;
+    setG((row: any) =>
+      row
+        ? {
+            ...row,
+            is_collected: nextCol,
+            collected: undefined,
+            collect_count: Math.max(
+              0,
+              (row.collect_count ?? 0) + (nextCol ? 1 : -1),
+            ),
+          }
+        : row,
+    );
     try {
-      if (collected) {
+      if (was) {
         await collectRemove(EXT_GOODS, id, 0);
-        setCollected(false);
       } else {
         await collectAdd(EXT_GOODS, id, 0);
-        setCollected(true);
       }
-      load();
+      const row = await getGood(id);
+      setG((prev: any) => {
+        if (!prev) {
+          return prev;
+        }
+        const merged = mergeGoodFromApi(row, prev);
+        void cacheSet(cacheKey, merged);
+        return merged;
+      });
     } catch (e: any) {
-      Alert.alert('操作失败', e?.message || '');
+      setG(snapshot);
+      Alert.alert('操作失败', e?.message ?? '');
     }
   };
 
@@ -168,6 +241,9 @@ export default function GoodDetailScreen({ route, navigation }: any) {
   const pct = hasDisc ? discountPercent(marked, g.price) : 0;
 
   const galleryUrls = ((g.images as string[] | undefined)?.filter(Boolean) ?? []) as string[];
+
+  const liked = normalizeFlag(g.is_liked ?? g.liked);
+  const collected = normalizeFlag(g.is_collected ?? g.collected);
 
   return (
     <Screen scroll={false}>
@@ -263,6 +339,8 @@ export default function GoodDetailScreen({ route, navigation }: any) {
             onLike={toggleLike}
             onCollect={toggleCollect}
             gap={14}
+            likeCount={g.like_count ?? 0}
+            collectCount={g.collect_count ?? 0}
           />
         </View>
 

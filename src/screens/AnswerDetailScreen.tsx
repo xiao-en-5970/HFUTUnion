@@ -76,6 +76,7 @@ function mergeDetailIntoList(list: ArticleRow[], detail: AnswerRow): AnswerRow[]
   if (idx === -1) {
     return [...base, normalizeAnswerFlags(detail)].map(normalizeAnswerFlags);
   }
+  // 详情接口含 is_liked / is_collected 时覆盖列表中的缺省或旧值
   base[idx] = normalizeAnswerFlags({ ...base[idx], ...detail });
   return base.map(normalizeAnswerFlags);
 }

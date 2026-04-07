@@ -21,14 +21,40 @@ import { cacheGet, cacheSet } from '../utils/cacheStorage';
 
 const EXT_POST = 1;
 
-export default function PostDetailScreen({ route, navigation }: any) {
+function normalizeFlag(v: unknown): boolean {
+  if (v === true || v === 1 || v === '1') {
+    return true;
+  }
+  return false;
+}
+
+function normalizePostFlags(p: any) {
+  if (!p) {
+    return p;
+  }
+  return {
+    ...p,
+    is_liked: normalizeFlag(p.is_liked ?? p.liked),
+    is_collected: normalizeFlag(p.is_collected ?? p.collected),
+  };
+}
+
+function mergePostFromApi(row: any, prev: any) {
+  return normalizePostFlags({
+    ...prev,
+    ...row,
+    like_count: row.like_count ?? prev.like_count,
+    collect_count: row.collect_count ?? prev.collect_count,
+    view_count: row.view_count ?? prev.view_count,
+  });
+}
+
+export default function PostDetailScreen({ route }: any) {
   const id = Number(route.params?.id ?? route.params?.postId);
   const cacheKey = `post:detail:v1:${id}`;
   const [post, setPost] = useState<any>(null);
   const [comments, setComments] = useState<any[]>([]);
   const [text, setText] = useState('');
-  const [liked, setLiked] = useState(false);
-  const [collected, setCollected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -38,10 +64,8 @@ export default function PostDetailScreen({ route, navigation }: any) {
       const cached = await cacheGet<{ post: any; comments: any[] }>(cacheKey);
       if (cached?.post) {
         hadCache = true;
-        setPost(cached.post);
+        setPost(normalizePostFlags(cached.post));
         setComments(cached.comments || []);
-        setLiked(Boolean(cached.post.is_liked ?? cached.post.liked));
-        setCollected(Boolean(cached.post.is_collected ?? cached.post.collected));
         setLoading(false);
       }
     } catch {
@@ -52,13 +76,12 @@ export default function PostDetailScreen({ route, navigation }: any) {
     }
     try {
       const p = await getPost(id);
-      setPost(p);
-      setLiked(Boolean(p.is_liked ?? p.liked));
-      setCollected(Boolean(p.is_collected ?? p.collected));
+      const normalized = normalizePostFlags(p);
+      setPost(normalized);
       const c = await listComments(EXT_POST, id, 1, 50);
       const rows = c.list || [];
       setComments(rows);
-      await cacheSet(cacheKey, { post: p, comments: rows });
+      await cacheSet(cacheKey, { post: normalized, comments: rows });
     } catch (e: any) {
       if (!hadCache) {
         Alert.alert('加载失败', e?.message || '');
@@ -89,32 +112,91 @@ export default function PostDetailScreen({ route, navigation }: any) {
   };
 
   const toggleLike = async () => {
+    if (!post) {
+      return;
+    }
+    const was = normalizeFlag(post.is_liked ?? post.liked);
+    const snapshot = { ...post };
+    const nextLiked = !was;
+    setPost((p: any) =>
+      p
+        ? {
+            ...p,
+            is_liked: nextLiked,
+            liked: undefined,
+            like_count: Math.max(0, (p.like_count ?? 0) + (nextLiked ? 1 : -1)),
+          }
+        : p,
+    );
     try {
-      if (liked) {
+      if (was) {
         await likeRemove(EXT_POST, id);
-        setLiked(false);
       } else {
         await likeAdd(EXT_POST, id);
-        setLiked(true);
       }
-      load();
+      const row = await getPost(id);
+      setPost((prev: any) => {
+        if (!prev) {
+          return prev;
+        }
+        const merged = mergePostFromApi(row, prev);
+        void cacheGet<{ post: any; comments: any[] }>(cacheKey).then((cached) => {
+          cacheSet(cacheKey, {
+            post: merged,
+            comments: cached?.comments ?? [],
+          }).catch(() => {});
+        });
+        return merged;
+      });
     } catch (e: any) {
-      Alert.alert('操作失败', e?.message);
+      setPost(snapshot);
+      Alert.alert('操作失败', e?.message ?? '');
     }
   };
 
   const toggleCollect = async () => {
+    if (!post) {
+      return;
+    }
+    const was = normalizeFlag(post.is_collected ?? post.collected);
+    const snapshot = { ...post };
+    const nextCol = !was;
+    setPost((p: any) =>
+      p
+        ? {
+            ...p,
+            is_collected: nextCol,
+            collected: undefined,
+            collect_count: Math.max(
+              0,
+              (p.collect_count ?? 0) + (nextCol ? 1 : -1),
+            ),
+          }
+        : p,
+    );
     try {
-      if (collected) {
+      if (was) {
         await collectRemove(EXT_POST, id, 0);
-        setCollected(false);
       } else {
         await collectAdd(EXT_POST, id, 0);
-        setCollected(true);
       }
-      load();
+      const row = await getPost(id);
+      setPost((prev: any) => {
+        if (!prev) {
+          return prev;
+        }
+        const merged = mergePostFromApi(row, prev);
+        void cacheGet<{ post: any; comments: any[] }>(cacheKey).then((cached) => {
+          cacheSet(cacheKey, {
+            post: merged,
+            comments: cached?.comments ?? [],
+          }).catch(() => {});
+        });
+        return merged;
+      });
     } catch (e: any) {
-      Alert.alert('操作失败', e?.message);
+      setPost(snapshot);
+      Alert.alert('操作失败', e?.message ?? '');
     }
   };
 
@@ -142,6 +224,9 @@ export default function PostDetailScreen({ route, navigation }: any) {
       </Screen>
     );
   }
+
+  const liked = normalizeFlag(post.is_liked ?? post.liked);
+  const collected = normalizeFlag(post.is_collected ?? post.collected);
 
   return (
     <Screen scroll={false}>
@@ -180,6 +265,8 @@ export default function PostDetailScreen({ route, navigation }: any) {
             onLike={toggleLike}
             onCollect={toggleCollect}
             gap={14}
+            likeCount={post.like_count ?? 0}
+            collectCount={post.collect_count ?? 0}
           />
         </View>
 

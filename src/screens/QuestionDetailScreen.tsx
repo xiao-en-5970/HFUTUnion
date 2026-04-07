@@ -25,13 +25,39 @@ import { cacheGet, cacheSet } from '../utils/cacheStorage';
 
 const EXT_Q = 2;
 
+function normalizeFlag(v: unknown): boolean {
+  if (v === true || v === 1 || v === '1') {
+    return true;
+  }
+  return false;
+}
+
+function normalizeQuestionFlags(row: any) {
+  if (!row) {
+    return row;
+  }
+  return {
+    ...row,
+    is_liked: normalizeFlag(row.is_liked ?? row.liked),
+    is_collected: normalizeFlag(row.is_collected ?? row.collected),
+  };
+}
+
+function mergeQuestionFromApi(row: any, prev: any) {
+  return normalizeQuestionFlags({
+    ...prev,
+    ...row,
+    like_count: row.like_count ?? prev.like_count,
+    collect_count: row.collect_count ?? prev.collect_count,
+    view_count: row.view_count ?? prev.view_count,
+  });
+}
+
 export default function QuestionDetailScreen({ route, navigation }: any) {
   const id = Number(route.params?.id);
   const cacheKey = `question:detail:v2:${id}`;
   const [q, setQ] = useState<any>(null);
   const [answers, setAnswers] = useState<any[]>([]);
-  const [liked, setLiked] = useState(false);
-  const [collected, setCollected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -44,10 +70,8 @@ export default function QuestionDetailScreen({ route, navigation }: any) {
       }>(cacheKey);
       if (cached?.q) {
         hadCache = true;
-        setQ(cached.q);
+        setQ(normalizeQuestionFlags(cached.q));
         setAnswers(cached.answers || []);
-        setLiked(Boolean(cached.q.is_liked ?? cached.q.liked));
-        setCollected(Boolean(cached.q.is_collected ?? cached.q.collected));
         setLoading(false);
       }
     } catch {
@@ -58,13 +82,12 @@ export default function QuestionDetailScreen({ route, navigation }: any) {
     }
     try {
       const qu = await getQuestion(id);
-      setQ(qu);
-      setLiked(Boolean(qu.is_liked ?? qu.liked));
-      setCollected(Boolean(qu.is_collected ?? qu.collected));
+      const normalized = normalizeQuestionFlags(qu);
+      setQ(normalized);
       const an = await listQuestionAnswers(id, 1, 50);
       const al = an.list || [];
       setAnswers(al);
-      await cacheSet(cacheKey, { q: qu, answers: al });
+      await cacheSet(cacheKey, { q: normalized, answers: al });
     } catch (e: any) {
       if (!hadCache) {
         Alert.alert('加载失败', e?.message);
@@ -82,32 +105,91 @@ export default function QuestionDetailScreen({ route, navigation }: any) {
   );
 
   const toggleLike = async () => {
+    if (!q) {
+      return;
+    }
+    const was = normalizeFlag(q.is_liked ?? q.liked);
+    const snapshot = { ...q };
+    const nextLiked = !was;
+    setQ((row: any) =>
+      row
+        ? {
+            ...row,
+            is_liked: nextLiked,
+            liked: undefined,
+            like_count: Math.max(0, (row.like_count ?? 0) + (nextLiked ? 1 : -1)),
+          }
+        : row,
+    );
     try {
-      if (liked) {
+      if (was) {
         await likeRemove(EXT_Q, id);
-        setLiked(false);
       } else {
         await likeAdd(EXT_Q, id);
-        setLiked(true);
       }
-      load();
+      const row = await getQuestion(id);
+      setQ((prev: any) => {
+        if (!prev) {
+          return prev;
+        }
+        const merged = mergeQuestionFromApi(row, prev);
+        void cacheGet<{ q: any; answers: any[] }>(cacheKey).then((cached) => {
+          cacheSet(cacheKey, {
+            q: merged,
+            answers: cached?.answers ?? [],
+          }).catch(() => {});
+        });
+        return merged;
+      });
     } catch (e: any) {
-      Alert.alert('操作失败', e?.message);
+      setQ(snapshot);
+      Alert.alert('操作失败', e?.message ?? '');
     }
   };
 
   const toggleCollect = async () => {
+    if (!q) {
+      return;
+    }
+    const was = normalizeFlag(q.is_collected ?? q.collected);
+    const snapshot = { ...q };
+    const nextCol = !was;
+    setQ((row: any) =>
+      row
+        ? {
+            ...row,
+            is_collected: nextCol,
+            collected: undefined,
+            collect_count: Math.max(
+              0,
+              (row.collect_count ?? 0) + (nextCol ? 1 : -1),
+            ),
+          }
+        : row,
+    );
     try {
-      if (collected) {
+      if (was) {
         await collectRemove(EXT_Q, id, 0);
-        setCollected(false);
       } else {
         await collectAdd(EXT_Q, id, 0);
-        setCollected(true);
       }
-      load();
+      const row = await getQuestion(id);
+      setQ((prev: any) => {
+        if (!prev) {
+          return prev;
+        }
+        const merged = mergeQuestionFromApi(row, prev);
+        void cacheGet<{ q: any; answers: any[] }>(cacheKey).then((cached) => {
+          cacheSet(cacheKey, {
+            q: merged,
+            answers: cached?.answers ?? [],
+          }).catch(() => {});
+        });
+        return merged;
+      });
     } catch (e: any) {
-      Alert.alert('操作失败', e?.message);
+      setQ(snapshot);
+      Alert.alert('操作失败', e?.message ?? '');
     }
   };
 
@@ -138,6 +220,9 @@ export default function QuestionDetailScreen({ route, navigation }: any) {
     );
   }
 
+  const liked = normalizeFlag(q.is_liked ?? q.liked);
+  const collected = normalizeFlag(q.is_collected ?? q.collected);
+
   return (
     <Screen scroll={false}>
       <ScrollView
@@ -167,6 +252,8 @@ export default function QuestionDetailScreen({ route, navigation }: any) {
             onLike={toggleLike}
             onCollect={toggleCollect}
             gap={10}
+            likeCount={q.like_count ?? 0}
+            collectCount={q.collect_count ?? 0}
           />
         </View>
         <Text style={styles.title}>{q.title}</Text>
