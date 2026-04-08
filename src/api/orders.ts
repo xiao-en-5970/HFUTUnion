@@ -2,6 +2,8 @@ import { apiRequest, buildQuery } from './client';
 
 export type OrderRow = {
   id: number;
+  /** 1 正常 2 已删除/禁用；聊天列表等应忽略非 1 */
+  status?: number;
   /** 买方用户 id */
   user_id?: number | null;
   order_status?: number;

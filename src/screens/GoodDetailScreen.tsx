@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -22,6 +22,9 @@ import PrimaryButton from '../components/PrimaryButton';
 import SocialActionRow from '../components/SocialActionRow';
 import { colors, space } from '../theme/colors';
 import { cacheGet, cacheSet } from '../utils/cacheStorage';
+import { fetchUserInfo } from '../api/user';
+import { readCachedUserInfo } from '../utils/userCache';
+import { resolveCurrentUserId } from '../utils/userId';
 
 const EXT_GOODS = 4;
 
@@ -77,6 +80,7 @@ export default function GoodDetailScreen({ route }: any) {
   const [imgViewerVisible, setImgViewerVisible] = useState(false);
   const [imgViewerIndex, setImgViewerIndex] = useState(0);
   const [galleryIndex, setGalleryIndex] = useState(0);
+  const [myUserId, setMyUserId] = useState<number | null>(null);
 
   const cacheKey = `good:detail:v1:${id}`;
   const viewabilityConfig = useRef({
@@ -126,6 +130,29 @@ export default function GoodDetailScreen({ route }: any) {
       load();
     }, [load]),
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const me = await fetchUserInfo();
+        let uid = resolveCurrentUserId(me);
+        if (uid == null) {
+          uid = resolveCurrentUserId(await readCachedUserInfo());
+        }
+        if (!cancelled) {
+          setMyUserId(uid);
+        }
+      } catch {
+        if (!cancelled) {
+          setMyUserId(null);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const toggleLike = async () => {
     if (!g) {
@@ -210,6 +237,21 @@ export default function GoodDetailScreen({ route }: any) {
     if (!g) {
       return;
     }
+    const sid =
+      g.user_id != null && g.user_id !== ''
+        ? Number(g.user_id)
+        : g.author?.id != null
+          ? Number(g.author.id)
+          : null;
+    if (
+      myUserId != null &&
+      sid != null &&
+      Number.isFinite(sid) &&
+      sid === myUserId
+    ) {
+      Alert.alert('提示', '不能购买自己发布的商品');
+      return;
+    }
     try {
       setWantBusy(true);
       const { id: orderId } = await createOrder({ goods_id: id });
@@ -244,6 +286,18 @@ export default function GoodDetailScreen({ route }: any) {
 
   const liked = normalizeFlag(g.is_liked ?? g.liked);
   const collected = normalizeFlag(g.is_collected ?? g.collected);
+
+  const sellerUid =
+    g.user_id != null && g.user_id !== ''
+      ? Number(g.user_id)
+      : g.author?.id != null
+        ? Number(g.author.id)
+        : null;
+  const isOwnGood =
+    myUserId != null &&
+    sellerUid != null &&
+    Number.isFinite(sellerUid) &&
+    sellerUid === myUserId;
 
   return (
     <Screen scroll={false}>
@@ -349,7 +403,13 @@ export default function GoodDetailScreen({ route }: any) {
           <Text style={styles.sellerLabel}>卖家</Text>
           <Text style={styles.sellerName}>{g.author?.username || '匿名'}</Text>
         </View>
-        <PrimaryButton title="我想要" onPress={goWant} loading={wantBusy} style={styles.buy} />
+        {isOwnGood ? (
+          <Text style={styles.ownGoodHint}>
+            这是您发布的商品，无法向自己购买；买家可在「我想要」与您沟通。
+          </Text>
+        ) : (
+          <PrimaryButton title="我想要" onPress={goWant} loading={wantBusy} style={styles.buy} />
+        )}
       </ScrollView>
 
       <OriginalImageViewer
@@ -423,5 +483,14 @@ const styles = StyleSheet.create({
   sellerLabel: { fontSize: 13, color: colors.textMuted },
   sellerName: { fontSize: 15, fontWeight: '600', color: colors.primary },
   buy: { marginHorizontal: space.md, marginTop: 24 },
+  ownGoodHint: {
+    marginHorizontal: space.md,
+    marginTop: 24,
+    padding: space.md,
+    fontSize: 14,
+    color: colors.textSecondary,
+    lineHeight: 20,
+    textAlign: 'center',
+  },
   muted: { color: colors.textMuted, padding: space.md },
 });

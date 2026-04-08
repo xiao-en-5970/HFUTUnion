@@ -59,7 +59,16 @@ export async function fetchChatConversations(): Promise<ChatConversation[]> {
 
   const out: ChatConversation[] = [];
 
+  const seenOrderIds = new Set<number>();
+
   for (const o of buyRes.list || []) {
+    if (o.status != null && o.status !== 1) {
+      continue;
+    }
+    if (seenOrderIds.has(o.id)) {
+      continue;
+    }
+    seenOrderIds.add(o.id);
     const sid = o.good?.user_id;
     if (sid == null) {
       continue;
@@ -78,6 +87,13 @@ export async function fetchChatConversations(): Promise<ChatConversation[]> {
   }
 
   for (const o of sellRes.list || []) {
+    if (o.status != null && o.status !== 1) {
+      continue;
+    }
+    if (seenOrderIds.has(o.id)) {
+      continue;
+    }
+    seenOrderIds.add(o.id);
     const bid = o.user_id;
     if (bid == null) {
       continue;

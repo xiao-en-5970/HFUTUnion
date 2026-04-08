@@ -19,12 +19,24 @@ import {
 import Screen from '../components/Screen';
 import PrimaryButton from '../components/PrimaryButton';
 import { colors, radius, space } from '../theme/colors';
+import {
+  ensureAndroidFineLocation,
+  formatGpsErrorMessage,
+  requestGpsPosition,
+} from '../utils/locationGps';
+
+function hasValidCoords(lat: unknown, lng: unknown): boolean {
+  const la = Number(lat);
+  const ln = Number(lng);
+  return Number.isFinite(la) && Number.isFinite(ln);
+}
 
 export default function AddressListScreen() {
   const [list, setList] = useState<any[]>([]);
   const [modal, setModal] = useState(false);
   const [label, setLabel] = useState('');
   const [addr, setAddr] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const load = async () => {
     try {
@@ -46,10 +58,28 @@ export default function AddressListScreen() {
       Alert.alert('提示', '请填写地址');
       return;
     }
+    setSaving(true);
     try {
+      const ok = await ensureAndroidFineLocation();
+      if (!ok) {
+        Alert.alert('提示', '需要定位权限才能保存收货地址（用于距离与配送）');
+        return;
+      }
+      let lat: number;
+      let lng: number;
+      try {
+        const pos = await requestGpsPosition();
+        lat = pos.latitude;
+        lng = pos.longitude;
+      } catch (e) {
+        Alert.alert('定位失败', formatGpsErrorMessage(e));
+        return;
+      }
       await createUserLocation({
         label: label.trim() || '地址',
         addr: addr.trim(),
+        lat,
+        lng,
         is_default: list.length === 0,
       });
       setModal(false);
@@ -57,7 +87,9 @@ export default function AddressListScreen() {
       setAddr('');
       load();
     } catch (e: any) {
-      Alert.alert('失败', e?.message);
+      Alert.alert('失败', e?.message ?? '保存失败');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -92,6 +124,16 @@ export default function AddressListScreen() {
               )}
             </View>
             <Text style={styles.addr}>{item.addr}</Text>
+            {hasValidCoords(item.lat, item.lng) ? (
+              <Text style={styles.coords}>
+                已定位 · {Number(item.lat).toFixed(5)},{' '}
+                {Number(item.lng).toFixed(5)}
+              </Text>
+            ) : (
+              <Text style={styles.coordsMissing}>
+                未记录经纬度（老数据可删除后按新流程重加）
+              </Text>
+            )}
             <TouchableOpacity
               onPress={() =>
                 Alert.alert('删除', '确认删除？', [
@@ -135,7 +177,10 @@ export default function AddressListScreen() {
               onChangeText={setAddr}
               multiline
             />
-            <PrimaryButton title="保存" onPress={add} />
+            <Text style={styles.hint}>
+              保存时将自动获取当前位置经纬度，用于市集距离、下单与配送；请允许定位权限。
+            </Text>
+            <PrimaryButton title="保存" onPress={add} loading={saving} />
             <TouchableOpacity style={styles.cancel} onPress={() => setModal(false)}>
               <Text style={styles.cancelText}>取消</Text>
             </TouchableOpacity>
@@ -162,7 +207,23 @@ const styles = StyleSheet.create({
   def: { fontSize: 12, color: colors.primary, fontWeight: '600' },
   link: { fontSize: 13, color: colors.primary },
   addr: { marginTop: 8, fontSize: 15, color: colors.textSecondary, lineHeight: 22 },
+  coords: {
+    marginTop: 6,
+    fontSize: 12,
+    color: colors.textMuted,
+  },
+  coordsMissing: {
+    marginTop: 6,
+    fontSize: 12,
+    color: colors.textMuted,
+  },
   del: { marginTop: 10, fontSize: 13, color: colors.danger },
+  hint: {
+    fontSize: 12,
+    color: colors.textMuted,
+    lineHeight: 18,
+    marginBottom: space.md,
+  },
   empty: { textAlign: 'center', color: colors.textMuted, marginTop: 40 },
   modalBg: {
     flex: 1,

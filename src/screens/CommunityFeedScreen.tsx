@@ -50,8 +50,12 @@ function feedItem(row: FeedRow): ArticleRow {
   return row.item;
 }
 
-/** 推荐排序下，0 回答求助的等效时间加成（相对帖子/回答更靠前） */
-const RECOMMEND_ZERO_Q_BOOST_MS = 5 * 24 * 60 * 60 * 1000;
+/** 与后端 AggregateSearch 默认权重一致：收藏 10、点赞 5、浏览 1 */
+const POP_W_COLLECT = 10;
+const POP_W_LIKE = 5;
+const POP_W_VIEW = 1;
+/** 推荐模式下，0 回答求助的额外加权（不宜过大，避免压过高互动内容） */
+const RECOMMEND_ZERO_ANSWER_SCORE_BOOST = 50_000;
 
 /** 仅当接口明确返回 answer_count===0 时进综合区，避免有回答仍显示「0 回答」 */
 function filterZeroAnswerQuestions(list: ArticleRow[]): ArticleRow[] {
@@ -63,9 +67,31 @@ function filterZeroAnswerQuestions(list: ArticleRow[]): ArticleRow[] {
 function combinedSortTime(row: FeedRow, feedMode: PostFeedMode): number {
   const t = rowTime(feedItem(row));
   if (feedMode === 'recommend' && row.k === 'question') {
-    return t + RECOMMEND_ZERO_Q_BOOST_MS;
+    return t + 5 * 24 * 60 * 60 * 1000;
   }
   return t;
+}
+
+function popScore(item: ArticleRow): number {
+  const lc = Number(item.like_count) || 0;
+  const cc = Number(item.collect_count) || 0;
+  const vc = Number(item.view_count) || 0;
+  return cc * POP_W_COLLECT + lc * POP_W_LIKE + vc * POP_W_VIEW;
+}
+
+/** 综合区合并排序：最新=时间降序；热门/推荐=热度降序（与接口帖子序一致），再按时间打破平局 */
+function feedMergeSortKey(row: FeedRow, feedMode: PostFeedMode): number {
+  if (feedMode === 'latest') {
+    return combinedSortTime(row, feedMode);
+  }
+  let s = popScore(feedItem(row));
+  if (feedMode === 'recommend' && row.k === 'question') {
+    const ac = feedItem(row).answer_count;
+    if (typeof ac === 'number' && ac === 0) {
+      s += RECOMMEND_ZERO_ANSWER_SCORE_BOOST;
+    }
+  }
+  return s;
 }
 
 function mergeFeedCombined(
@@ -79,7 +105,13 @@ function mergeFeedCombined(
     ...answers.map((item) => ({ k: 'answer' as const, item })),
     ...questions.map((item) => ({ k: 'question' as const, item })),
   ];
-  rows.sort((a, b) => combinedSortTime(b, feedMode) - combinedSortTime(a, feedMode));
+  rows.sort((a, b) => {
+    const diff = feedMergeSortKey(b, feedMode) - feedMergeSortKey(a, feedMode);
+    if (diff !== 0) {
+      return diff;
+    }
+    return combinedSortTime(b, feedMode) - combinedSortTime(a, feedMode);
+  });
   return rows;
 }
 
@@ -131,7 +163,7 @@ export default function CommunityFeedScreen({ navigation }: any) {
     hasMoreQuestionRef.current = hasMoreQuestion;
   }, [hasMoreQuestion]);
 
-  const cacheKey = `community:feed:v8:${feedMode}:${communityTab}`;
+  const cacheKey = `community:feed:v9:${feedMode}:${communityTab}`;
 
   const displayRows = useMemo((): FeedRow[] => {
     switch (communityTab) {
