@@ -397,9 +397,38 @@ export default function OrderChatScreen() {
   };
 
   const onConfirmDelivery = async () => {
+    if (!myId) {
+      Alert.alert('提示', '请先登录');
+      return;
+    }
+    const r = await launchImageLibrary({
+      mediaType: 'photo',
+      selectionLimit: 9,
+    });
+    if (r.didCancel || !r.assets?.length) {
+      return;
+    }
     try {
       setActionBusy(true);
-      await confirmDelivery(orderId);
+      const urls: string[] = [];
+      for (const a of r.assets) {
+        const uri = a.uri;
+        if (!uri) {
+          continue;
+        }
+        const imgUrl = await uploadOssUserFile(
+          myId,
+          uri,
+          a.type || 'image/jpeg',
+          a.fileName || 'delivery.jpg',
+        );
+        urls.push(imgUrl);
+      }
+      if (urls.length === 0) {
+        Alert.alert('提示', '请至少选择一张送达凭证照片');
+        return;
+      }
+      await confirmDelivery(orderId, { delivery_images: urls });
       await refreshAll();
     } catch (e: any) {
       Alert.alert('操作失败', e?.message || '');
@@ -592,7 +621,9 @@ export default function OrderChatScreen() {
       return (
         <View style={styles.banner}>
           <Text style={styles.bannerTitle}>{gt === 2 ? '待买方自提 / 待送达' : '待送达'}</Text>
-          <Text style={styles.bannerDesc}>履约完成后请点击确认，买家将收到「确认收货」提醒。</Text>
+          <Text style={styles.bannerDesc}>
+            履约完成后请上传至少一张送达凭证照片，再确认；买家将收到「确认收货」提醒。
+          </Text>
           <TouchableOpacity
             style={[styles.bannerBtn, actionBusy && styles.bannerBtnDisabled]}
             disabled={actionBusy}
@@ -600,7 +631,7 @@ export default function OrderChatScreen() {
             {actionBusy ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={styles.bannerBtnText}>确认已送达</Text>
+              <Text style={styles.bannerBtnText}>上传凭证并确认已送达</Text>
             )}
           </TouchableOpacity>
         </View>

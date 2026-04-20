@@ -18,6 +18,8 @@ import {
   cancelOrder,
 } from '../api/orders';
 import { fetchUserInfo } from '../api/user';
+import { uploadOssUserFile } from '../api/oss';
+import { launchImageLibrary } from 'react-native-image-picker';
 import Screen from '../components/Screen';
 import PrimaryButton from '../components/PrimaryButton';
 import { colors, radius, space } from '../theme/colors';
@@ -26,6 +28,7 @@ export default function OrderDetailScreen({ route, navigation }: any) {
   const [o, setO] = useState<any>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [imgPreview, setImgPreview] = useState(false);
+  const [deliveryBusy, setDeliveryBusy] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -110,13 +113,54 @@ export default function OrderDetailScreen({ route, navigation }: any) {
         ) : null}
         {st === 2 ? (
           <PrimaryButton
-            title="卖家：确认发货/自提完成"
+            title="卖家：上传凭证并确认发货/自提完成"
+            loading={deliveryBusy}
             onPress={async () => {
+              let me: Awaited<ReturnType<typeof fetchUserInfo>>;
               try {
-                await confirmDelivery(id);
+                me = await fetchUserInfo();
+              } catch {
+                Alert.alert('提示', '请先登录');
+                return;
+              }
+              const myId = me?.id != null ? Number(me.id) : NaN;
+              if (!Number.isFinite(myId)) {
+                Alert.alert('提示', '请先登录');
+                return;
+              }
+              const r = await launchImageLibrary({
+                mediaType: 'photo',
+                selectionLimit: 9,
+              });
+              if (r.didCancel || !r.assets?.length) {
+                return;
+              }
+              try {
+                setDeliveryBusy(true);
+                const urls: string[] = [];
+                for (const a of r.assets) {
+                  const uri = a.uri;
+                  if (!uri) {
+                    continue;
+                  }
+                  const imgUrl = await uploadOssUserFile(
+                    myId,
+                    uri,
+                    a.type || 'image/jpeg',
+                    a.fileName || 'delivery.jpg',
+                  );
+                  urls.push(imgUrl);
+                }
+                if (urls.length === 0) {
+                  Alert.alert('提示', '请至少选择一张送达凭证照片');
+                  return;
+                }
+                await confirmDelivery(id, { delivery_images: urls });
                 load();
               } catch (e: any) {
-                Alert.alert(e?.message);
+                Alert.alert('操作失败', e?.message || '');
+              } finally {
+                setDeliveryBusy(false);
               }
             }}
           />

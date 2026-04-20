@@ -6,6 +6,27 @@ export const EXT_TYPE_QUESTION = 2;
 export const EXT_TYPE_ANSWER = 3;
 export const EXT_TYPE_GOODS = 4;
 
+export type CommentAuthor = { id: number; username: string; avatar?: string };
+
+export type CommentItem = {
+  id: number;
+  content: string;
+  images?: string[];
+  user_id?: number;
+  parent_id?: number;
+  reply_id?: number;
+  type?: number;
+  like_count?: number;
+  created_at?: string;
+  author?: CommentAuthor;
+  reply_to_author?: CommentAuthor;
+  reply_count?: number;
+  is_liked?: boolean;
+  top_replies?: CommentItem[];
+};
+
+export const EXT_TYPE_COMMENT = 5;
+
 /** extType: 1帖 2问 3答 4商品 */
 export async function listComments(
   extType: number,
@@ -13,18 +34,21 @@ export async function listComments(
   page = 1,
   pageSize = 20,
 ) {
-  return apiRequest<{
-    list: Array<{
-      id: number;
-      content: string;
-      images?: string[];
-      user_id?: number;
-      parent_id?: number;
-      created_at?: string;
-      author?: { id: number; username: string; avatar?: string };
-    }>;
-    total: number;
-  }>(`/comments/${extType}/${id}${buildQuery({ page, pageSize })}`);
+  return apiRequest<{ list: CommentItem[]; total: number }>(
+    `/comments/${extType}/${id}${buildQuery({ page, pageSize })}`,
+  );
+}
+
+export async function listReplies(
+  extType: number,
+  id: number,
+  commentId: number,
+  page = 1,
+  pageSize = 50,
+) {
+  return apiRequest<{ list: CommentItem[]; total: number }>(
+    `/comments/${extType}/${id}/${commentId}/replies${buildQuery({ page, pageSize })}`,
+  );
 }
 
 export async function postComment(

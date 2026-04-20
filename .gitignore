@@ -56,6 +56,9 @@ yarn-error.log
 # Bundle artifact
 *.jsbundle
 
+# Local iOS build output (see npm run ios:dist-simulator)
+/dist/
+
 # Ruby / CocoaPods
 **/Pods/
 /vendor/bundle/

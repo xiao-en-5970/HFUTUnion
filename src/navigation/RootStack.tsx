@@ -24,6 +24,7 @@ import MyContentScreen from '../screens/MyContentScreen';
 import MyCollectsScreen from '../screens/MyCollectsScreen';
 import EditQuestionScreen from '../screens/EditQuestionScreen';
 import EditAnswerScreen from '../screens/EditAnswerScreen';
+import CommentRepliesScreen from '../screens/CommentRepliesScreen';
 import BootstrapScreen from '../screens/BootstrapScreen';
 
 export type RootStackParamList = {
@@ -53,6 +54,15 @@ export type RootStackParamList = {
     counterpartRole?: 'seller' | 'buyer';
   };
   AddressList: undefined;
+  CommentReplies: {
+    extType: number;
+    extId: number;
+    commentId: number;
+    commentAuthor?: string;
+    commentContent?: string;
+    commentLikeCount?: number;
+    commentIsLiked?: boolean;
+  };
   SchoolBind: undefined;
 };
 
@@ -110,6 +120,7 @@ export default function RootStack() {
       <Stack.Screen name="MyOrders" component={MyOrdersScreen} options={{ title: '我的订单' }} />
       <Stack.Screen name="OrderChat" component={OrderChatScreen} options={{ title: '订单沟通' }} />
       <Stack.Screen name="AddressList" component={AddressListScreen} options={{ title: '收货地址' }} />
+      <Stack.Screen name="CommentReplies" component={CommentRepliesScreen} options={{ title: '回复' }} />
       <Stack.Screen name="SchoolBind" component={SchoolBindScreen} options={{ title: '学籍认证' }} />
       <Stack.Screen name="EditProfile" component={EditProfileScreen} options={{ title: '编辑资料' }} />
     </Stack.Navigator>

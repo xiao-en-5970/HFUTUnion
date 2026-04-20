@@ -6,6 +6,8 @@
     "android": "react-native run-android",
     "android:release-apk": "cd android && ./gradlew clean assembleRelease --rerun-tasks --no-build-cache",
     "ios": "react-native run-ios",
+    "ios:pod": "bash -lc 'cd ios && export LANG=en_US.UTF-8 && pod install'",
+    "ios:dist-simulator": "bash scripts/build-ios-simulator.sh",
     "lint": "eslint .",
     "start": "react-native start",
     "test": "jest"

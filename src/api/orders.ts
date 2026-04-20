@@ -115,7 +115,10 @@ export async function sellerConfirmPayment(orderId: number) {
   });
 }
 
-export async function confirmDelivery(orderId: number, body: Record<string, unknown> = {}) {
+export async function confirmDelivery(
+  orderId: number,
+  body: { delivery_images: string[] },
+) {
   return apiRequest<unknown>(`/orders/${orderId}/confirm-delivery`, {
     method: 'POST',
     body: JSON.stringify(body),
