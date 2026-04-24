@@ -34,6 +34,7 @@ import {
   mergeById,
   hasMorePages,
 } from '../utils/pagination';
+import { markViewed, useViewedSet } from '../utils/viewedTracker';
 
 type FeedRow =
   | { k: 'post'; item: ArticleRow }
@@ -54,8 +55,32 @@ function feedItem(row: FeedRow): ArticleRow {
 const POP_W_COLLECT = 10;
 const POP_W_LIKE = 5;
 const POP_W_VIEW = 1;
-/** 推荐模式下，0 回答求助的额外加权（不宜过大，避免压过高互动内容） */
-const RECOMMEND_ZERO_ANSWER_SCORE_BOOST = 50_000;
+
+/**
+ * 综合区对「0 回答求助」的加权策略（三个模式各自补偿一次）：
+ * - latest：给 7 天的时间提前，让一周内的求助稳定出现在首屏
+ * - hot：给一个等效 ~300 浏览 + 10 点赞的基础分，避免 0 互动沉底
+ * - recommend：不走分数，走 interleave 槽位权重（见 COMBINED_SLOT_PATTERN）
+ */
+const LATEST_QUESTION_TIME_BOOST_MS = 7 * 24 * 60 * 60 * 1000;
+const HOT_QUESTION_SCORE_FLOOR = 350; // ≈ 300 浏览 + 10 点赞
+
+/**
+ * 推荐模式综合区槽位：7 槽 = 3 帖 + 2 求助 + 2 回答 ≈ 43/29/29。
+ * 关键设计：
+ *   - 第 2 个卡片就是「求助」，首屏必有求助露出，避免被折叠线挡住
+ *   - 帖子仍占最大比重（43%），保持综合区的「帖子为主」阅读感
+ *   - 后端三路各自已按个性化排序返回，这里只负责类型交织，不再二次重排
+ */
+const COMBINED_SLOT_PATTERN: readonly ('post' | 'question' | 'answer')[] = [
+  'post',
+  'question',
+  'post',
+  'answer',
+  'post',
+  'question',
+  'answer',
+];
 
 /** 仅当接口明确返回 answer_count===0 时进综合区，避免有回答仍显示「0 回答」 */
 function filterZeroAnswerQuestions(list: ArticleRow[]): ArticleRow[] {
@@ -64,10 +89,15 @@ function filterZeroAnswerQuestions(list: ArticleRow[]): ArticleRow[] {
   );
 }
 
-function combinedSortTime(row: FeedRow, feedMode: PostFeedMode): number {
+/**
+ * latest 模式的"有效时间"：0 回答求助会被提前 7 天，以此与新帖竞争首屏位置。
+ * combined 区内的 question 已经被 filterZeroAnswerQuestions 筛过一遍，
+ * 所以这里无需再判 answer_count。
+ */
+function combinedSortTime(row: FeedRow): number {
   const t = rowTime(feedItem(row));
-  if (feedMode === 'recommend' && row.k === 'question') {
-    return t + 5 * 24 * 60 * 60 * 1000;
+  if (row.k === 'question') {
+    return t + LATEST_QUESTION_TIME_BOOST_MS;
   }
   return t;
 }
@@ -79,19 +109,67 @@ function popScore(item: ArticleRow): number {
   return cc * POP_W_COLLECT + lc * POP_W_LIKE + vc * POP_W_VIEW;
 }
 
-/** 综合区合并排序：最新=时间降序；热门/推荐=热度降序（与接口帖子序一致），再按时间打破平局 */
+/** 综合区合并排序：latest=时间降序（求助 +7 天加权）；hot=热度降序（求助额外基础分） */
 function feedMergeSortKey(row: FeedRow, feedMode: PostFeedMode): number {
   if (feedMode === 'latest') {
-    return combinedSortTime(row, feedMode);
+    return combinedSortTime(row);
   }
   let s = popScore(feedItem(row));
-  if (feedMode === 'recommend' && row.k === 'question') {
-    const ac = feedItem(row).answer_count;
-    if (typeof ac === 'number' && ac === 0) {
-      s += RECOMMEND_ZERO_ANSWER_SCORE_BOOST;
-    }
+  if (row.k === 'question') {
+    s += HOT_QUESTION_SCORE_FLOOR;
   }
   return s;
+}
+
+/**
+ * 推荐模式下，三路（post/answer/question）已各自按后端个性化排序返回；
+ * 再用热度/时间重排会毁掉个性化。这里保留各路内部顺序，按 COMBINED_SLOT_PATTERN
+ * 做权重交织：每 7 槽 ≈ 3 帖 + 2 求助 + 2 回答，且求助率先在第 2 个位置露出。
+ */
+function interleavePersonalizedCombined(
+  posts: ArticleRow[],
+  answers: AnswerRow[],
+  questions: ArticleRow[],
+): FeedRow[] {
+  const out: FeedRow[] = [];
+  let pi = 0;
+  let ai = 0;
+  let qi = 0;
+  const total = posts.length + answers.length + questions.length;
+  let turn = 0;
+  while (out.length < total) {
+    const want = COMBINED_SLOT_PATTERN[turn % COMBINED_SLOT_PATTERN.length];
+    turn += 1;
+    let picked = false;
+    if (want === 'post' && pi < posts.length) {
+      out.push({ k: 'post', item: posts[pi] });
+      pi += 1;
+      picked = true;
+    } else if (want === 'question' && qi < questions.length) {
+      out.push({ k: 'question', item: questions[qi] });
+      qi += 1;
+      picked = true;
+    } else if (want === 'answer' && ai < answers.length) {
+      out.push({ k: 'answer', item: answers[ai] });
+      ai += 1;
+      picked = true;
+    }
+    if (picked) {
+      continue;
+    }
+    // 当前槽位对应类别已空：优先补帖子（维持综合区帖子为主），其次求助，最后回答
+    if (pi < posts.length) {
+      out.push({ k: 'post', item: posts[pi] });
+      pi += 1;
+    } else if (qi < questions.length) {
+      out.push({ k: 'question', item: questions[qi] });
+      qi += 1;
+    } else if (ai < answers.length) {
+      out.push({ k: 'answer', item: answers[ai] });
+      ai += 1;
+    }
+  }
+  return out;
 }
 
 function mergeFeedCombined(
@@ -100,6 +178,9 @@ function mergeFeedCombined(
   questions: ArticleRow[],
   feedMode: PostFeedMode,
 ): FeedRow[] {
+  if (feedMode === 'recommend') {
+    return interleavePersonalizedCombined(posts, answers, questions);
+  }
   const rows: FeedRow[] = [
     ...posts.map((item) => ({ k: 'post' as const, item })),
     ...answers.map((item) => ({ k: 'answer' as const, item })),
@@ -110,7 +191,7 @@ function mergeFeedCombined(
     if (diff !== 0) {
       return diff;
     }
-    return combinedSortTime(b, feedMode) - combinedSortTime(a, feedMode);
+    return combinedSortTime(b) - combinedSortTime(a);
   });
   return rows;
 }
@@ -133,6 +214,10 @@ export default function CommunityFeedScreen({ navigation }: any) {
   const { feedMode, communityTab } = useCommunityFeedMode();
   const tabBarHeight = useBottomTabBarHeight();
   const insets = useSafeAreaInsets();
+  /** 已看过的 ID 集合：点击卡片时打标，列表再次渲染即变灰字；三类内容各维护一份 */
+  const viewedPosts = useViewedSet('post');
+  const viewedQuestions = useViewedSet('question');
+  const viewedAnswers = useViewedSet('answer');
   const [posts, setPosts] = useState<ArticleRow[]>([]);
   const [answers, setAnswers] = useState<AnswerRow[]>([]);
   const [questions, setQuestions] = useState<ArticleRow[]>([]);
@@ -152,6 +237,14 @@ export default function CommunityFeedScreen({ navigation }: any) {
   const hasMorePostRef = useRef(true);
   const hasMoreAnswerRef = useRef(true);
   const hasMoreQuestionRef = useRef(true);
+  /**
+   * 推荐模式下，后端会回显/生成 refresh_token；
+   * 下拉刷新清空 → 获得新流；翻页复用同一 token → 顺序稳定、去重不撞页。
+   * 三个 ref 分别对应三类内容，互不干扰。
+   */
+  const postTokenRef = useRef<string | undefined>(undefined);
+  const answerTokenRef = useRef<string | undefined>(undefined);
+  const questionTokenRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     hasMorePostRef.current = hasMorePost;
@@ -196,29 +289,34 @@ export default function CommunityFeedScreen({ navigation }: any) {
   }, [communityTab]);
 
   const loadInitial = useCallback(async () => {
+    // 推荐模式每次刷新都应该是"新的个性化流"，不读也不写本地缓存；
+    // 缓存只对 latest/hot（确定性排序）有意义。
+    const useLocalCache = feedMode !== 'recommend';
     let hadCache = false;
-    try {
-      const cached = await cacheGet<{
-        posts: ArticleRow[];
-        answers: AnswerRow[];
-        questions: ArticleRow[];
-        /** 综合区求助列表接口累计拉取条数 */
-        questionCumulativeRaw?: number;
-      }>(cacheKey);
-      if (
-        cached?.posts?.length ||
-        cached?.answers?.length ||
-        cached?.questions?.length
-      ) {
-        hadCache = true;
-        setPosts(cached.posts || []);
-        setAnswers(cached.answers || []);
-        setQuestions(cached.questions || []);
-        questionCumulativeRef.current = cached.questionCumulativeRaw ?? 0;
-        setLoading(false);
+    if (useLocalCache) {
+      try {
+        const cached = await cacheGet<{
+          posts: ArticleRow[];
+          answers: AnswerRow[];
+          questions: ArticleRow[];
+          /** 综合区求助列表接口累计拉取条数 */
+          questionCumulativeRaw?: number;
+        }>(cacheKey);
+        if (
+          cached?.posts?.length ||
+          cached?.answers?.length ||
+          cached?.questions?.length
+        ) {
+          hadCache = true;
+          setPosts(cached.posts || []);
+          setAnswers(cached.answers || []);
+          setQuestions(cached.questions || []);
+          questionCumulativeRef.current = cached.questionCumulativeRaw ?? 0;
+          setLoading(false);
+        }
+      } catch {
+        /* noop */
       }
-    } catch {
-      /* noop */
     }
     if (!hadCache) {
       setLoading(true);
@@ -226,6 +324,10 @@ export default function CommunityFeedScreen({ navigation }: any) {
     postPageRef.current = 1;
     answerPageRef.current = 1;
     questionPageRef.current = 1;
+    // 下拉刷新 / 首次加载：清空 token，让后端返回新 token 开启新一条推荐流
+    postTokenRef.current = undefined;
+    answerTokenRef.current = undefined;
+    questionTokenRef.current = undefined;
     loadingMoreRef.current = false;
 
     const tab = communityTab;
@@ -234,8 +336,8 @@ export default function CommunityFeedScreen({ navigation }: any) {
       if (tab === 'combined') {
         const [postRes, answerRes, questionRes] = await Promise.allSettled([
           listPosts(1, PAGE_SIZE, { mode: feedMode }),
-          listAnswers(1, PAGE_SIZE),
-          listQuestions(1, PAGE_SIZE),
+          listAnswers(1, PAGE_SIZE, { mode: feedMode }),
+          listQuestions(1, PAGE_SIZE, { mode: feedMode }),
         ]);
         let pl: ArticleRow[] = [];
         let prTotal: number | undefined;
@@ -243,6 +345,7 @@ export default function CommunityFeedScreen({ navigation }: any) {
           const pr = postRes.value;
           pl = pr.list ?? [];
           prTotal = pr.total;
+          postTokenRef.current = pr.refresh_token;
         }
         let al: AnswerRow[] = [];
         let arTotal: number | undefined;
@@ -250,6 +353,7 @@ export default function CommunityFeedScreen({ navigation }: any) {
           const ar = answerRes.value;
           al = ar.list ?? [];
           arTotal = ar.total;
+          answerTokenRef.current = ar.refresh_token;
         }
         let ql: ArticleRow[] = [];
         let qrTotal: number | undefined;
@@ -261,6 +365,7 @@ export default function CommunityFeedScreen({ navigation }: any) {
           questionCumulativeRef.current = raw.length;
           ql = filterZeroAnswerQuestions(raw);
           qrTotal = qr.total;
+          questionTokenRef.current = qr.refresh_token;
         }
         setPosts(pl);
         setAnswers(al);
@@ -279,15 +384,18 @@ export default function CommunityFeedScreen({ navigation }: any) {
         hasMorePostRef.current = mp;
         hasMoreAnswerRef.current = ma;
         hasMoreQuestionRef.current = mq;
-        await cacheSet(cacheKey, {
-          posts: pl,
-          answers: al,
-          questions: ql,
-          questionCumulativeRaw: questionCumulativeRef.current,
-        });
+        if (useLocalCache) {
+          await cacheSet(cacheKey, {
+            posts: pl,
+            answers: al,
+            questions: ql,
+            questionCumulativeRaw: questionCumulativeRef.current,
+          });
+        }
       } else if (tab === 'post') {
         const pr = await listPosts(1, PAGE_SIZE, { mode: feedMode });
         const pl = pr.list ?? [];
+        postTokenRef.current = pr.refresh_token;
         setPosts(pl);
         setAnswers([]);
         setQuestions([]);
@@ -298,10 +406,13 @@ export default function CommunityFeedScreen({ navigation }: any) {
         hasMorePostRef.current = mp;
         hasMoreAnswerRef.current = false;
         hasMoreQuestionRef.current = false;
-        await cacheSet(cacheKey, { posts: pl, answers: [], questions: [] });
+        if (useLocalCache) {
+          await cacheSet(cacheKey, { posts: pl, answers: [], questions: [] });
+        }
       } else if (tab === 'help') {
-        const qr = await listQuestions(1, PAGE_SIZE);
+        const qr = await listQuestions(1, PAGE_SIZE, { mode: feedMode });
         const ql = qr.list ?? [];
+        questionTokenRef.current = qr.refresh_token;
         setPosts([]);
         setAnswers([]);
         setQuestions(ql);
@@ -312,10 +423,13 @@ export default function CommunityFeedScreen({ navigation }: any) {
         hasMorePostRef.current = false;
         hasMoreAnswerRef.current = false;
         hasMoreQuestionRef.current = mq;
-        await cacheSet(cacheKey, { posts: [], answers: [], questions: ql });
+        if (useLocalCache) {
+          await cacheSet(cacheKey, { posts: [], answers: [], questions: ql });
+        }
       } else {
-        const ar = await listAnswers(1, PAGE_SIZE);
+        const ar = await listAnswers(1, PAGE_SIZE, { mode: feedMode });
         const al = ar.list ?? [];
+        answerTokenRef.current = ar.refresh_token;
         setPosts([]);
         setAnswers(al);
         setQuestions([]);
@@ -326,7 +440,9 @@ export default function CommunityFeedScreen({ navigation }: any) {
         hasMorePostRef.current = false;
         hasMoreAnswerRef.current = ma;
         hasMoreQuestionRef.current = false;
-        await cacheSet(cacheKey, { posts: [], answers: al, questions: [] });
+        if (useLocalCache) {
+          await cacheSet(cacheKey, { posts: [], answers: al, questions: [] });
+        }
       }
     } catch {
       if (!hadCache) {
@@ -377,7 +493,13 @@ export default function CommunityFeedScreen({ navigation }: any) {
           const next = postPageRef.current + 1;
           tasks.push(
             (async () => {
-              const pr = await listPosts(next, PAGE_SIZE, { mode: feedMode });
+              const pr = await listPosts(next, PAGE_SIZE, {
+                mode: feedMode,
+                refreshToken: postTokenRef.current,
+              });
+              if (pr.refresh_token) {
+                postTokenRef.current = pr.refresh_token;
+              }
               const rows = pr.list || [];
               setPosts((prev) => {
                 const mergedPosts = mergeById(prev, rows);
@@ -401,7 +523,13 @@ export default function CommunityFeedScreen({ navigation }: any) {
           const nextA = answerPageRef.current + 1;
           tasks.push(
             (async () => {
-              const ar = await listAnswers(nextA, PAGE_SIZE);
+              const ar = await listAnswers(nextA, PAGE_SIZE, {
+                mode: feedMode,
+                refreshToken: answerTokenRef.current,
+              });
+              if (ar.refresh_token) {
+                answerTokenRef.current = ar.refresh_token;
+              }
               const rows = ar.list || [];
               setAnswers((prev) => {
                 const mergedAns = mergeById(prev, rows);
@@ -425,7 +553,13 @@ export default function CommunityFeedScreen({ navigation }: any) {
           const nextQ = questionPageRef.current + 1;
           tasks.push(
             (async () => {
-              const qr = await listQuestions(nextQ, PAGE_SIZE);
+              const qr = await listQuestions(nextQ, PAGE_SIZE, {
+                mode: feedMode,
+                refreshToken: questionTokenRef.current,
+              });
+              if (qr.refresh_token) {
+                questionTokenRef.current = qr.refresh_token;
+              }
               const rows = qr.list || [];
               questionCumulativeRef.current += rows.length;
               setQuestions((prev) => {
@@ -451,7 +585,13 @@ export default function CommunityFeedScreen({ navigation }: any) {
         const next = postPageRef.current + 1;
         tasks.push(
           (async () => {
-            const pr = await listPosts(next, PAGE_SIZE, { mode: feedMode });
+            const pr = await listPosts(next, PAGE_SIZE, {
+              mode: feedMode,
+              refreshToken: postTokenRef.current,
+            });
+            if (pr.refresh_token) {
+              postTokenRef.current = pr.refresh_token;
+            }
             const rows = pr.list || [];
             setPosts((prev) => {
               const mergedPosts = mergeById(prev, rows);
@@ -474,7 +614,13 @@ export default function CommunityFeedScreen({ navigation }: any) {
         const nextQ = questionPageRef.current + 1;
         tasks.push(
           (async () => {
-            const qr = await listQuestions(nextQ, PAGE_SIZE);
+            const qr = await listQuestions(nextQ, PAGE_SIZE, {
+              mode: feedMode,
+              refreshToken: questionTokenRef.current,
+            });
+            if (qr.refresh_token) {
+              questionTokenRef.current = qr.refresh_token;
+            }
             const rows = qr.list || [];
             setQuestions((prev) => {
               const mergedQ = mergeById(prev, rows);
@@ -497,7 +643,13 @@ export default function CommunityFeedScreen({ navigation }: any) {
         const nextA = answerPageRef.current + 1;
         tasks.push(
           (async () => {
-            const ar = await listAnswers(nextA, PAGE_SIZE);
+            const ar = await listAnswers(nextA, PAGE_SIZE, {
+              mode: feedMode,
+              refreshToken: answerTokenRef.current,
+            });
+            if (ar.refresh_token) {
+              answerTokenRef.current = ar.refresh_token;
+            }
             const rows = ar.list || [];
             setAnswers((prev) => {
               const mergedAns = mergeById(prev, rows);
@@ -539,24 +691,33 @@ export default function CommunityFeedScreen({ navigation }: any) {
   const renderItem = ({ item: row }: { item: FeedRow }) => {
     if (row.k === 'post') {
       const item = row.item;
+      // 本地 Set（当前设备已看） || 后端 is_viewed（跨设备已看）——任一命中即灰字
+      const viewed = viewedPosts.has(item.id) || !!item.is_viewed;
       return (
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('PostDetail', { id: item.id })}>
+          onPress={() => {
+            markViewed('post', item.id);
+            navigation.navigate('PostDetail', { id: item.id });
+          }}>
           <View style={styles.cardRow}>
             <FeedThumb uri={thumbUri(item)} />
             <View style={styles.cardBody}>
               <ArticleListTags kind="post" schoolId={item.school_id} compact />
-              <Text style={styles.cardTitle} numberOfLines={2}>
+              <Text
+                style={[styles.cardTitle, viewed && styles.viewedText]}
+                numberOfLines={2}>
                 {item.title || item.content?.slice(0, 60)}
               </Text>
               {item.content?.trim() ? (
-                <Text style={styles.preview} numberOfLines={3}>
+                <Text
+                  style={[styles.preview, viewed && styles.viewedSubText]}
+                  numberOfLines={3}>
                   {item.content.trim()}
                 </Text>
               ) : null}
-              <Text style={styles.cardMeta}>
+              <Text style={[styles.cardMeta, viewed && styles.viewedSubText]}>
                 {item.author?.username} · {item.like_count ?? 0} 赞
                 {item.view_count != null ? ` · ${item.view_count} 浏览` : ''}
               </Text>
@@ -569,24 +730,30 @@ export default function CommunityFeedScreen({ navigation }: any) {
     if (row.k === 'question') {
       const item = row.item;
       const title = item.title?.trim() || item.content?.slice(0, 40) || '求助';
+      const viewed = viewedQuestions.has(item.id) || !!item.is_viewed;
       return (
         <TouchableOpacity
           style={styles.card}
           activeOpacity={0.8}
-          onPress={() =>
-            navigation.navigate('QuestionDetail', { id: item.id })
-          }>
+          onPress={() => {
+            markViewed('question', item.id);
+            navigation.navigate('QuestionDetail', { id: item.id });
+          }}>
           <View style={styles.cardRow}>
             <FeedThumb uri={thumbUri(item)} />
             <View style={styles.cardBody}>
               <ArticleListTags kind="question" schoolId={item.school_id} compact />
-              <Text style={styles.qTitle} numberOfLines={2}>
+              <Text
+                style={[styles.qTitle, viewed && styles.viewedText]}
+                numberOfLines={2}>
                 {title}
               </Text>
-              <Text style={styles.preview} numberOfLines={4}>
+              <Text
+                style={[styles.preview, viewed && styles.viewedSubText]}
+                numberOfLines={4}>
                 {item.content?.trim() || '（无正文）'}
               </Text>
-              <Text style={styles.cardMeta}>
+              <Text style={[styles.cardMeta, viewed && styles.viewedSubText]}>
                 {item.author?.username ?? '用户'} · 求助 ·{' '}
                 {item.answer_count ?? 0} 回答
               </Text>
@@ -598,11 +765,15 @@ export default function CommunityFeedScreen({ navigation }: any) {
 
     const item = row.item;
     const qTitle = item.parent_question?.title?.trim() || '求助';
+    const viewed = viewedAnswers.has(item.id) || !!item.is_viewed;
     return (
       <TouchableOpacity
         style={styles.card}
         activeOpacity={0.8}
-        onPress={() => navigation.navigate('AnswerDetail', { id: item.id })}>
+        onPress={() => {
+          markViewed('answer', item.id);
+          navigation.navigate('AnswerDetail', { id: item.id });
+        }}>
         <View style={styles.cardRow}>
           <FeedThumb uri={thumbUri(item)} />
           <View style={styles.cardBody}>
@@ -611,13 +782,17 @@ export default function CommunityFeedScreen({ navigation }: any) {
               schoolId={item.school_id ?? item.parent_question?.school_id}
               compact
             />
-            <Text style={styles.qTitle} numberOfLines={2}>
+            <Text
+              style={[styles.qTitle, viewed && styles.viewedText]}
+              numberOfLines={2}>
               {qTitle}
             </Text>
-            <Text style={styles.preview} numberOfLines={4}>
+            <Text
+              style={[styles.preview, viewed && styles.viewedSubText]}
+              numberOfLines={4}>
               {item.content?.trim() || '（无正文）'}
             </Text>
-            <Text style={styles.cardMeta}>
+            <Text style={[styles.cardMeta, viewed && styles.viewedSubText]}>
               {item.author?.username ?? '用户'} · 回答
             </Text>
           </View>
@@ -767,6 +942,9 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   cardMeta: { marginTop: 8, fontSize: 12, color: colors.textMuted },
+  /** 已看过：主标题 / 副标题降级为中灰；与未看过区分明显但仍可读 */
+  viewedText: { color: colors.textMuted, fontWeight: '500' },
+  viewedSubText: { color: colors.textMuted },
   empty: { textAlign: 'center', color: colors.textMuted, marginTop: 40 },
   sheetWrap: {
     flex: 1,

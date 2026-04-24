@@ -27,6 +27,7 @@ import {
   formatGpsErrorMessage,
   requestGpsPosition,
 } from '../utils/locationGps';
+import { awaitMapPickerResult } from '../utils/mapPickerBridge';
 
 type Picked = {
   key: string;
@@ -244,6 +245,33 @@ export default function GoodCreateScreen({ navigation, route }: any) {
     setGpsAddrLabel('');
   };
 
+  const pickOnMap = async () => {
+    // 选点初始中心优先级：当前已选 GPS/saved 坐标 > 当前 GPS（尝试一次）> picker 内部默认
+    let initCenter: { lng: number; lat: number } | undefined;
+    if (useGpsForGood && gpsLat != null && gpsLng != null) {
+      initCenter = { lng: gpsLng, lat: gpsLat };
+    } else if (selectedLocationId != null) {
+      const sel = locations.find((l) => l.id === selectedLocationId);
+      if (sel?.lat != null && sel?.lng != null) {
+        initCenter = { lng: sel.lng, lat: sel.lat };
+      }
+    }
+    const waiter = awaitMapPickerResult();
+    navigation.navigate('MapPicker', {
+      title: '在地图上选点',
+      ...(initCenter ? { initCenter } : {}),
+    });
+    const result = await waiter;
+    if (!result) return;
+    setUseGpsForGood(true);
+    setSelectedLocationId(null);
+    setGpsLat(result.lat);
+    setGpsLng(result.lng);
+    setGpsAddrLabel(
+      `地图选点（${result.lat.toFixed(5)}, ${result.lng.toFixed(5)}）`,
+    );
+  };
+
   const fetchCurrentPosition = async () => {
     const ok = await ensureAndroidFineLocation();
     if (!ok) {
@@ -446,6 +474,15 @@ export default function GoodCreateScreen({ navigation, route }: any) {
               <Ionicons name="navigate-outline" size={18} color={colors.primary} />
             )}
             <Text style={styles.addrManageText}>当前定位</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.addrManageBtn, styles.addrGpsBtn]}
+            onPress={() => {
+              pickOnMap().catch(() => {});
+            }}
+            activeOpacity={0.85}>
+            <Ionicons name="map-outline" size={18} color={colors.primary} />
+            <Text style={styles.addrManageText}>地图选点</Text>
           </TouchableOpacity>
         </View>
 

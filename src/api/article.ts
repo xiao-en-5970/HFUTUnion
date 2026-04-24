@@ -22,6 +22,11 @@ export type ArticleRow = {
   /** 后端若返回，用于同步收藏状态 */
   is_collected?: boolean;
   collected?: boolean;
+  /**
+   * 后端标记：当前登录用户是否已在本设备或其它设备浏览 / 点赞 / 收藏 / 评论过本条；
+   * 为 true 时前端在列表中渲染为灰字「已看过」；与本地 viewedTracker 并集生效。
+   */
+  is_viewed?: boolean;
   /** 0 或 null 表示全站公开（与后台「校外/全站」一致）；>0 为本校隔离 */
   school_id?: number | null;
   updated_at?: string;
@@ -42,34 +47,51 @@ export type AnswerRow = ArticleRow & {
 };
 
 /**
- * 帖子列表模式（与 HFUT-Graduation-Project 对齐）：
+ * 帖子列表模式（与后端对齐）：
  * - latest → GET /post?page&pageSize（按发布时间）
- * - recommend → GET /search/articles?type=1&sort=combined（综合排序）
+ * - recommend → GET /post?sort=recommend&refresh_token=...（个性化推荐，稳定分页）
  * - hot → GET /search/articles?type=1&sort=popularity（热度）
  */
 export type PostFeedMode = 'latest' | 'recommend' | 'hot';
 
+/** 推荐模式响应附带后端生成 / 回显的 refresh_token；前端下拉刷新清空、翻页复用即可保证顺序稳定 */
+export type RecommendFeedResult<T> = {
+  list: T[];
+  total: number;
+  page: number;
+  page_size: number;
+  /** 推荐模式才有；其它 sort 为 undefined */
+  refresh_token?: string;
+  sort?: string;
+};
+
 export async function listPosts(
   page = 1,
   pageSize = 20,
-  opts?: { mode?: PostFeedMode },
-) {
+  opts?: { mode?: PostFeedMode; refreshToken?: string },
+): Promise<RecommendFeedResult<ArticleRow>> {
   const mode = opts?.mode ?? 'latest';
-  if (mode === 'latest') {
-    return apiRequest<{
-      list: ArticleRow[];
-      total: number;
-      page: number;
-      page_size: number;
-    }>(`/post${buildQuery({ page, page_size: pageSize })}`);
+  if (mode === 'recommend') {
+    return apiRequest<RecommendFeedResult<ArticleRow>>(
+      `/post${buildQuery({
+        page,
+        page_size: pageSize,
+        sort: 'recommend',
+        refresh_token: opts?.refreshToken || undefined,
+      })}`,
+    );
   }
-  const sort = mode === 'recommend' ? 'combined' : 'popularity';
+  if (mode === 'latest') {
+    return apiRequest<RecommendFeedResult<ArticleRow>>(
+      `/post${buildQuery({ page, page_size: pageSize })}`,
+    );
+  }
   return searchArticles({
     type: 1,
-    sort,
+    sort: 'popularity',
     page,
     page_size: pageSize,
-  });
+  }) as unknown as Promise<RecommendFeedResult<ArticleRow>>;
 }
 
 export async function getPost(id: number) {
@@ -183,14 +205,26 @@ export async function listPostDrafts(page = 1, pageSize = 20) {
   }>(`/post/drafts${buildQuery({ page, pageSize })}`);
 }
 
-/** 求助列表 */
-export async function listQuestions(page = 1, pageSize = 20) {
-  return apiRequest<{
-    list: ArticleRow[];
-    total: number;
-    page: number;
-    page_size: number;
-  }>(`/question${buildQuery({ page, page_size: pageSize })}`);
+/** 求助列表；mode='recommend' 走个性化，带 refresh_token 稳定分页；'hot'/'latest' 走默认 /question */
+export async function listQuestions(
+  page = 1,
+  pageSize = 20,
+  opts?: { mode?: PostFeedMode; refreshToken?: string },
+): Promise<RecommendFeedResult<ArticleRow>> {
+  const mode = opts?.mode ?? 'latest';
+  if (mode === 'recommend') {
+    return apiRequest<RecommendFeedResult<ArticleRow>>(
+      `/question${buildQuery({
+        page,
+        page_size: pageSize,
+        sort: 'recommend',
+        refresh_token: opts?.refreshToken || undefined,
+      })}`,
+    );
+  }
+  return apiRequest<RecommendFeedResult<ArticleRow>>(
+    `/question${buildQuery({ page, page_size: pageSize })}`,
+  );
 }
 
 export async function getQuestion(id: number) {
@@ -259,14 +293,26 @@ export async function publishAnswer(id: number) {
   return apiRequest<unknown>(`/answer/${id}/publish`, { method: 'POST' });
 }
 
-/** 社区回答流：分页列出回答，含 parent_question */
-export async function listAnswers(page = 1, pageSize = 20) {
-  return apiRequest<{
-    list: AnswerRow[];
-    total: number;
-    page: number;
-    page_size: number;
-  }>(`/answer${buildQuery({ page, page_size: pageSize })}`);
+/** 社区回答流：分页列出回答，含 parent_question；mode='recommend' 走个性化；'hot'/'latest' 走默认 /answer */
+export async function listAnswers(
+  page = 1,
+  pageSize = 20,
+  opts?: { mode?: PostFeedMode; refreshToken?: string },
+): Promise<RecommendFeedResult<AnswerRow>> {
+  const mode = opts?.mode ?? 'latest';
+  if (mode === 'recommend') {
+    return apiRequest<RecommendFeedResult<AnswerRow>>(
+      `/answer${buildQuery({
+        page,
+        page_size: pageSize,
+        sort: 'recommend',
+        refresh_token: opts?.refreshToken || undefined,
+      })}`,
+    );
+  }
+  return apiRequest<RecommendFeedResult<AnswerRow>>(
+    `/answer${buildQuery({ page, page_size: pageSize })}`,
+  );
 }
 
 export async function getAnswer(id: number) {

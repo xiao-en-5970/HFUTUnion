@@ -42,6 +42,15 @@
 				<key>NSExceptionAllowsInsecureHTTPLoads</key>
 				<true/>
 			</dict>
+			<!-- 地图服务器（Martin 瓦片 :50001、GraphHopper 寻路 :50002）目前仅支持 HTTP，
+			     WebView / fetch 都需要放行；若以后给地图服务加 TLS 可删除此项。 -->
+			<key>oeiw1426422.bohrium.tech</key>
+			<dict>
+				<key>NSIncludesSubdomains</key>
+				<true/>
+				<key>NSExceptionAllowsInsecureHTTPLoads</key>
+				<true/>
+			</dict>
 		</dict>
 	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>

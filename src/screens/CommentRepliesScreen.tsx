@@ -9,6 +9,7 @@ import {
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -20,9 +21,12 @@ import {
   EXT_TYPE_COMMENT,
   type CommentItem,
 } from '../api/social';
+import { fetchUserInfo } from '../api/user';
 import Screen from '../components/Screen';
 import PrimaryButton from '../components/PrimaryButton';
 import { colors, radius, space } from '../theme/colors';
+
+const PAGE_SIZE = 20;
 
 export default function CommentRepliesScreen({ route, navigation }: any) {
   const {
@@ -43,10 +47,14 @@ export default function CommentRepliesScreen({ route, navigation }: any) {
     commentIsLiked?: boolean;
   };
 
+  const [myId, setMyId] = useState<number | null>(null);
   const [parentLiked, setParentLiked] = useState(!!initIsLiked);
   const [parentLikeCount, setParentLikeCount] = useState(initLikeCount ?? 0);
   const [replies, setReplies] = useState<CommentItem[]>([]);
   const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [text, setText] = useState('');
   const [replyTarget, setReplyTarget] = useState<{
     replyId: number;
@@ -56,13 +64,40 @@ export default function CommentRepliesScreen({ route, navigation }: any) {
 
   const load = useCallback(async () => {
     try {
-      const r = await listReplies(extType, extId, commentId, 1, 200);
-      setReplies(r.list || []);
-      setTotal(r.total ?? (r.list?.length ?? 0));
+      fetchUserInfo().then((u) => setMyId(u?.id ?? null)).catch(() => {});
+      const r = await listReplies(extType, extId, commentId, 1, PAGE_SIZE);
+      const rows = r.list || [];
+      setReplies(rows);
+      const totalNow = r.total ?? rows.length;
+      setTotal(totalNow);
+      setPage(1);
+      setHasMore(rows.length < totalNow);
     } catch {
-      /* ignore */
+      setHasMore(false);
     }
   }, [extType, extId, commentId]);
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const next = page + 1;
+      const r = await listReplies(extType, extId, commentId, next, PAGE_SIZE);
+      const rows = r.list || [];
+      setReplies((prev) => {
+        const seen = new Set(prev.map((x) => x.id));
+        return [...prev, ...rows.filter((x) => !seen.has(x.id))];
+      });
+      setPage(next);
+      const totalNow = r.total ?? total;
+      setTotal(totalNow);
+      setHasMore(next * PAGE_SIZE < totalNow);
+    } catch {
+      /* ignore */
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [extType, extId, commentId, loadingMore, hasMore, page, total]);
 
   useFocusEffect(
     useCallback(() => {
@@ -84,6 +119,7 @@ export default function CommentRepliesScreen({ route, navigation }: any) {
   };
 
   const handleReplyTo = (c: CommentItem) => {
+    if (myId != null && c.user_id != null && Number(c.user_id) === myId) return;
     setReplyTarget({ replyId: c.id, username: c.author?.username || '用户' });
     inputRef.current?.focus();
   };
@@ -221,8 +257,19 @@ export default function CommentRepliesScreen({ route, navigation }: any) {
           keyExtractor={(i) => String(i.id)}
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={styles.listPad}
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.4}
           ListEmptyComponent={
             <Text style={styles.muted}>暂无回复</Text>
+          }
+          ListFooterComponent={
+            hasMore ? (
+              <View style={styles.footerLoader}>
+                {loadingMore ? <ActivityIndicator color={colors.primary} /> : null}
+              </View>
+            ) : replies.length > 0 ? (
+              <Text style={styles.footerEnd}>没有更多了</Text>
+            ) : null
           }
           renderItem={renderReply}
         />
@@ -321,4 +368,6 @@ const styles = StyleSheet.create({
   },
   sendBtn: { paddingVertical: 10, paddingHorizontal: 12 },
   muted: { color: colors.textMuted, fontSize: 14, padding: space.md },
+  footerLoader: { paddingVertical: 14, alignItems: 'center' },
+  footerEnd: { textAlign: 'center', color: colors.textMuted, fontSize: 12, paddingVertical: 12 },
 });

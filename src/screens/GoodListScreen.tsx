@@ -38,6 +38,7 @@ import {
   mergeById,
   hasMorePages,
 } from '../utils/pagination';
+import { markViewed, useViewedSet } from '../utils/viewedTracker';
 
 function goodsCacheKey(keyword: string, sort: GoodsListSort) {
   const k = keyword.trim() || '__all__';
@@ -75,6 +76,10 @@ export default function GoodListScreen() {
   const [keyword, setKeyword] = useState('');
   const keywordRef = useRef('');
   const [goodsSort, setGoodsSort] = useState<GoodsListSort>('newest');
+  /** 推荐模式下后端返回的 refresh_token，翻页复用保持顺序稳定；下拉刷新清空以触发新一条推荐流 */
+  const goodsTokenRef = useRef<string | undefined>(undefined);
+  /** 已点击过的商品 ID 集合：点击打标，列表再次渲染变灰字 */
+  const viewedGoods = useViewedSet('good');
 
   const applyLocationsAndRef = useCallback(async (locs: UserLocation[]) => {
     setLocations(locs);
@@ -89,23 +94,29 @@ export default function GoodListScreen() {
 
   const load = useCallback(async () => {
     const qTrim = keywordRef.current.trim();
+    // 推荐模式：每次刷新都应给出新的个性化流，不读也不写本地缓存；其它排序走缓存预热
+    const isRecommend = goodsSort === 'recommend' && !qTrim;
     const cacheKey = goodsCacheKey(qTrim, goodsSort);
     let hadCache = false;
-    try {
-      const cached = await cacheGet<{ list: GoodRow[] }>(cacheKey);
-      if (cached?.list?.length) {
-        hadCache = true;
-        setList(cached.list);
-        setListLoading(false);
+    if (!isRecommend) {
+      try {
+        const cached = await cacheGet<{ list: GoodRow[] }>(cacheKey);
+        if (cached?.list?.length) {
+          hadCache = true;
+          setList(cached.list);
+          setListLoading(false);
+        }
+      } catch {
+        /* noop */
       }
-    } catch {
-      /* noop */
     }
     if (!hadCache) {
       setListLoading(true);
     }
     pageRef.current = 1;
     loadingMoreRef.current = false;
+    // 新一轮加载：清空推荐 token，让后端返回新 token 开启新个性化流
+    goodsTokenRef.current = undefined;
     try {
       const q = qTrim;
       const [res, locs] = await Promise.all([
@@ -117,11 +128,16 @@ export default function GoodListScreen() {
       ]);
       const rows = res.list || [];
       const total = res.total;
+      if (res.refresh_token) {
+        goodsTokenRef.current = res.refresh_token;
+      }
       setList(rows);
       const more = hasMorePages(rows.length, PAGE_SIZE, total, rows.length);
       setHasMore(more);
       hasMoreRef.current = more;
-      await cacheSet(cacheKey, { list: rows });
+      if (!isRecommend) {
+        await cacheSet(cacheKey, { list: rows });
+      }
       await applyLocationsAndRef(locs);
     } catch {
       if (!hadCache) {
@@ -147,7 +163,11 @@ export default function GoodListScreen() {
       const res = await listGoods(nextPage, PAGE_SIZE, {
         q: qTrim || undefined,
         sort: goodsSort,
+        refreshToken: goodsSort === 'recommend' ? goodsTokenRef.current : undefined,
       });
+      if (res.refresh_token) {
+        goodsTokenRef.current = res.refresh_token;
+      }
       const rows = res.list || [];
       const total = res.total;
       setList((prev) => {
@@ -232,6 +252,14 @@ export default function GoodListScreen() {
           <View style={styles.sortLeft}>
             <Text style={styles.sortLabel}>排序</Text>
             <TouchableOpacity
+              style={[styles.sortChip, goodsSort === 'recommend' && styles.sortChipOn]}
+              onPress={() => setGoodsSort('recommend')}
+              activeOpacity={0.85}>
+              <Text style={[styles.sortChipText, goodsSort === 'recommend' && styles.sortChipTextOn]}>
+                推荐
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
               style={[styles.sortChip, goodsSort === 'newest' && styles.sortChipOn]}
               onPress={() => setGoodsSort('newest')}
               activeOpacity={0.85}>
@@ -306,12 +334,17 @@ export default function GoodListScreen() {
             const hasDisc = marked != null && marked > item.price;
             const pct = hasDisc ? discountPercent(marked, item.price) : 0;
             const hasCover = Boolean(item.images?.[0]);
+            // 本地 viewedTracker ∪ 后端 is_viewed（跨设备），任一命中即灰字
+            const viewed = viewedGoods.has(item.id) || !!item.is_viewed;
 
             return (
               <TouchableOpacity
                 style={[styles.card, !hasCover && styles.cardCompact]}
                 activeOpacity={0.85}
-                onPress={() => navigation.navigate('GoodDetail', { id: item.id })}>
+                onPress={() => {
+                  markViewed('good', item.id);
+                  navigation.navigate('GoodDetail', { id: item.id });
+                }}>
                 {hasCover && item.images?.[0] ? (
                   <>
                     <Image source={{ uri: item.images[0] }} style={styles.cover} />
@@ -322,7 +355,9 @@ export default function GoodListScreen() {
                         </Text>
                       </View>
                     ) : null}
-                    <Text numberOfLines={2} style={styles.title}>
+                    <Text
+                      numberOfLines={2}
+                      style={[styles.title, viewed && styles.viewedText]}>
                       {item.title}
                     </Text>
                   </>
@@ -339,14 +374,18 @@ export default function GoodListScreen() {
                           </Text>
                         </View>
                       ) : null}
-                      <Text numberOfLines={2} style={styles.titleNoCover}>
+                      <Text
+                        numberOfLines={2}
+                        style={[styles.titleNoCover, viewed && styles.viewedText]}>
                         {item.title}
                       </Text>
                     </View>
                   </View>
                 )}
                 <View style={[styles.priceRow, !hasCover && styles.priceRowCompact]}>
-                  <Text style={styles.price}>{formatPrice(item.price)}</Text>
+                  <Text style={[styles.price, viewed && styles.viewedPrice]}>
+                    {formatPrice(item.price)}
+                  </Text>
                   {hasDisc ? (
                     <>
                       <Text style={styles.oldPrice}>{formatPrice(marked)}</Text>
@@ -357,7 +396,11 @@ export default function GoodListScreen() {
                   ) : null}
                 </View>
                 <Text
-                  style={[styles.metaLine, !hasCover && styles.metaLineCompact]}
+                  style={[
+                    styles.metaLine,
+                    !hasCover && styles.metaLineCompact,
+                    viewed && styles.viewedMeta,
+                  ]}
                   numberOfLines={1}>
                   {dist != null
                     ? `距参考点 ${formatDistance(dist)}`
@@ -601,6 +644,10 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
   },
   metaLineCompact: { paddingTop: 2, paddingBottom: 6, fontSize: 10 },
+  /** 已看过：标题、价格、距离行全部降灰，让用户一眼看出「这件我点过」 */
+  viewedText: { color: colors.textMuted, fontWeight: '400' },
+  viewedPrice: { color: colors.textMuted, fontWeight: '700' },
+  viewedMeta: { color: colors.textMuted },
   empty: { textAlign: 'center', color: colors.textMuted, marginTop: 40, paddingHorizontal: space.lg },
   modalOverlay: {
     flex: 1,

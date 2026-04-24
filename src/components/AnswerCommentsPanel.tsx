@@ -13,6 +13,7 @@ import {
   Pressable,
   TouchableOpacity,
   useWindowDimensions,
+  ActivityIndicator,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -26,12 +27,14 @@ import {
   EXT_TYPE_COMMENT,
   type CommentItem,
 } from '../api/social';
+import { fetchUserInfo } from '../api/user';
 import PrimaryButton from './PrimaryButton';
 import { colors, radius, space } from '../theme/colors';
 import type { RootStackParamList } from '../navigation/RootStack';
 
 const OVERLAY = 'rgba(0,0,0,0.38)';
 const EXT_ANSWER = 3;
+const PAGE_SIZE = 20;
 
 function clamp(n: number, min: number, max: number) {
   return Math.min(max, Math.max(min, n));
@@ -52,8 +55,12 @@ export default function AnswerCommentsPanel({ answerId, open, onClose, onComment
   const fullH = winH * 0.9;
   const heightAnim = useRef(new Animated.Value(0)).current;
   const dragStartH = useRef(0);
+  const [myId, setMyId] = useState<number | null>(null);
   const [comments, setComments] = useState<CommentItem[]>([]);
   const [commentTotal, setCommentTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -68,17 +75,44 @@ export default function AnswerCommentsPanel({ answerId, open, onClose, onComment
     if (answerId == null) return;
     setLoading(true);
     try {
-      const c = await listComments(EXT_ANSWER, answerId, 1, 80);
-      setComments(c.list || []);
-      const total = c.total ?? (c.list?.length ?? 0);
+      fetchUserInfo().then((u) => setMyId(u?.id ?? null)).catch(() => {});
+      const c = await listComments(EXT_ANSWER, answerId, 1, PAGE_SIZE);
+      const rows = c.list || [];
+      setComments(rows);
+      const total = c.total ?? rows.length;
       setCommentTotal(total);
+      setPage(1);
+      setHasMore(rows.length < total);
       onCommentTotal?.(answerId, total);
     } catch {
       setComments([]);
+      setHasMore(false);
     } finally {
       setLoading(false);
     }
   }, [answerId, onCommentTotal]);
+
+  const loadMore = useCallback(async () => {
+    if (answerId == null || loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const next = page + 1;
+      const c = await listComments(EXT_ANSWER, answerId, next, PAGE_SIZE);
+      const rows = c.list || [];
+      setComments((prev) => {
+        const seen = new Set(prev.map((x) => x.id));
+        return [...prev, ...rows.filter((x) => !seen.has(x.id))];
+      });
+      setPage(next);
+      const totalNow = c.total ?? commentTotal;
+      setCommentTotal(totalNow);
+      setHasMore(next * PAGE_SIZE < totalNow);
+    } catch {
+      /* ignore */
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [answerId, loadingMore, hasMore, page, commentTotal]);
 
   useEffect(() => {
     if (open && answerId != null) {
@@ -123,6 +157,7 @@ export default function AnswerCommentsPanel({ answerId, open, onClose, onComment
   );
 
   const handleReplyTo = (c: CommentItem, isTopLevel: boolean) => {
+    if (myId != null && c.user_id != null && Number(c.user_id) === myId) return;
     const parentId = isTopLevel ? c.id : (c.parent_id ?? c.id);
     const replyId = isTopLevel ? undefined : c.id;
     setReplyTarget({ parentId, replyId, username: c.author?.username || '用户' });
@@ -236,10 +271,21 @@ export default function AnswerCommentsPanel({ answerId, open, onClose, onComment
               data={comments}
               keyboardShouldPersistTaps="handled"
               keyExtractor={(item) => String(item.id)}
+              onEndReached={loadMore}
+              onEndReachedThreshold={0.4}
               ListEmptyComponent={
                 loading
                   ? <Text style={styles.muted}>加载中…</Text>
                   : <Text style={styles.muted}>暂无评论</Text>
+              }
+              ListFooterComponent={
+                hasMore ? (
+                  <View style={styles.footerLoader}>
+                    {loadingMore ? <ActivityIndicator color={colors.primary} /> : null}
+                  </View>
+                ) : comments.length > 0 ? (
+                  <Text style={styles.footerEnd}>没有更多了</Text>
+                ) : null
               }
               renderItem={({ item: c }) => (
                 <View style={styles.cmtBlock}>
@@ -371,6 +417,8 @@ const styles = StyleSheet.create({
   replyHintText: { fontSize: 13, color: colors.primary },
   replyHintCancel: { fontSize: 13, color: colors.textMuted, paddingHorizontal: 8 },
   muted: { color: colors.textMuted, padding: space.md },
+  footerLoader: { paddingVertical: 14, alignItems: 'center' },
+  footerEnd: { textAlign: 'center', color: colors.textMuted, fontSize: 12, paddingVertical: 12 },
   inputRow: {
     flexDirection: 'row', alignItems: 'flex-end', gap: 8,
     paddingHorizontal: space.md, paddingTop: 8, paddingBottom: 4,

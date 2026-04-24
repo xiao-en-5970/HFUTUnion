@@ -32,6 +32,7 @@ import Screen from '../components/Screen';
 import LoadingMask from '../components/LoadingMask';
 import AnswerCommentsPanel from '../components/AnswerCommentsPanel';
 import { colors, radius, space } from '../theme/colors';
+import { markViewed } from '../utils/viewedTracker';
 
 const EXT_A = 3;
 
@@ -312,6 +313,13 @@ export default function AnswerDetailScreen({ route }: any) {
       title: t.length > 20 ? `${t.slice(0, 20)}…` : t,
     });
   }, [navigation, qTitle]);
+
+  // 切换到任一回答时即打标；用户在本页纵滑阅读多条，逐一记录才准确
+  useEffect(() => {
+    if (currentAnswerId && Number.isFinite(currentAnswerId) && currentAnswerId > 0) {
+      markViewed('answer', currentAnswerId);
+    }
+  }, [currentAnswerId]);
 
   useEffect(() => {
     let cancelled = false;

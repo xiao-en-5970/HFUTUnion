@@ -26,35 +26,61 @@ export type GoodRow = {
   liked?: boolean;
   is_collected?: boolean;
   collected?: boolean;
+  /** 后端标记：当前用户是否跨设备看过本商品；与本地 viewedTracker 并集 */
+  is_viewed?: boolean;
   created_at?: string;
 };
 
-/** 后端 GET /goods：`sort=newest` 或空=上架时间；`sort=updated_at`=最近更新 */
-export type GoodsListSort = 'newest' | 'updated_at';
+/**
+ * 后端 GET /goods：
+ * - `newest` 或空 = 上架时间降序
+ * - `updated_at` = 最近更新
+ * - `recommend` = 个性化推荐（带 refresh_token 稳定分页；仅在无关键词时生效）
+ */
+export type GoodsListSort = 'newest' | 'updated_at' | 'recommend';
+
+export type GoodsListResult = {
+  list: GoodRow[];
+  total: number;
+  page: number;
+  page_size: number;
+  /** 推荐模式才有；其它 sort 为 undefined */
+  refresh_token?: string;
+  sort?: string;
+};
 
 export async function listGoods(
   page = 1,
   pageSize = 20,
-  opts?: { q?: string; keyword?: string; sort?: GoodsListSort | string },
-) {
+  opts?: {
+    q?: string;
+    keyword?: string;
+    sort?: GoodsListSort | string;
+    refreshToken?: string;
+  },
+): Promise<GoodsListResult> {
+  const keyword = opts?.q ?? opts?.keyword;
   let sortParam: string | undefined;
+  let refreshTokenParam: string | undefined;
   if (opts?.sort === 'updated_at') {
     sortParam = 'updated_at';
+  } else if (opts?.sort === 'recommend') {
+    // 推荐模式仅在无关键词时生效；有关键词时回退到默认最新上架
+    if (!keyword || !keyword.trim()) {
+      sortParam = 'recommend';
+      refreshTokenParam = opts?.refreshToken || undefined;
+    }
   } else if (opts?.sort === 'newest') {
     sortParam = 'newest';
   }
   const params: Record<string, string | number | undefined> = {
     page,
     pageSize,
-    q: opts?.q ?? opts?.keyword,
+    q: keyword,
     sort: sortParam,
+    refresh_token: refreshTokenParam,
   };
-  return apiRequest<{
-    list: GoodRow[];
-    total: number;
-    page: number;
-    page_size: number;
-  }>(`/goods${buildQuery(params)}`);
+  return apiRequest<GoodsListResult>(`/goods${buildQuery(params)}`);
 }
 
 export async function getGood(id: number) {

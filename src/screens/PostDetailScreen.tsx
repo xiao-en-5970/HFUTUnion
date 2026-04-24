@@ -1,14 +1,18 @@
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View,
   Text,
   TextInput,
   StyleSheet,
+  FlatList,
   ScrollView,
   Image,
   Alert,
   RefreshControl,
   TouchableOpacity,
+  KeyboardAvoidingView,
+  Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -24,15 +28,18 @@ import {
   EXT_TYPE_COMMENT,
   type CommentItem,
 } from '../api/social';
+import { fetchUserInfo } from '../api/user';
 import Screen from '../components/Screen';
 import PrimaryButton from '../components/PrimaryButton';
 import LoadingMask from '../components/LoadingMask';
 import SocialActionRow from '../components/SocialActionRow';
 import { colors, radius, space } from '../theme/colors';
 import { cacheGet, cacheSet } from '../utils/cacheStorage';
+import { markViewed } from '../utils/viewedTracker';
 import type { RootStackParamList } from '../navigation/RootStack';
 
 const EXT_POST = 1;
+const PAGE_SIZE = 20;
 
 function normalizeFlag(v: unknown): boolean {
   if (v === true || v === 1 || v === '1') return true;
@@ -62,9 +69,13 @@ export default function PostDetailScreen({ route }: any) {
   const nav = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const id = Number(route.params?.id ?? route.params?.postId);
   const cacheKey = `post:detail:v1:${id}`;
+  const [myId, setMyId] = useState<number | null>(null);
   const [post, setPost] = useState<any>(null);
   const [comments, setComments] = useState<CommentItem[]>([]);
   const [commentTotal, setCommentTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -90,13 +101,16 @@ export default function PostDetailScreen({ route }: any) {
     } catch { /* noop */ }
     if (!hadCache) setLoading(true);
     try {
+      fetchUserInfo().then((u) => setMyId(u?.id ?? null)).catch(() => {});
       const p = await getPost(id);
       const normalized = normalizePostFlags(p);
       setPost(normalized);
-      const c = await listComments(EXT_POST, id, 1, 50);
+      const c = await listComments(EXT_POST, id, 1, PAGE_SIZE);
       const rows = c.list || [];
       setComments(rows);
       setCommentTotal(c.total ?? rows.length);
+      setPage(1);
+      setHasMore(rows.length < (c.total ?? 0));
       await cacheSet(cacheKey, { post: normalized, comments: rows });
     } catch (e: any) {
       if (!hadCache) Alert.alert('加载失败', e?.message || '');
@@ -106,9 +120,40 @@ export default function PostDetailScreen({ route }: any) {
     }
   };
 
+  const loadMore = async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const next = page + 1;
+      const c = await listComments(EXT_POST, id, next, PAGE_SIZE);
+      const rows = c.list || [];
+      setComments((prev) => {
+        const seen = new Set(prev.map((x) => x.id));
+        return [...prev, ...rows.filter((x) => !seen.has(x.id))];
+      });
+      setPage(next);
+      const totalNow = c.total ?? commentTotal;
+      setCommentTotal(totalNow);
+      setHasMore(next * PAGE_SIZE < totalNow);
+    } catch {
+      /* ignore */
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
   useFocusEffect(useCallback(() => { load(); }, [id]));
 
+  // 进入详情即打标：覆盖深链 / 通知点开等跳过列表直达的入口，
+  // 保证回到列表或其它设备（经后端 is_viewed）时显示灰字。
+  useEffect(() => {
+    if (Number.isFinite(id) && id > 0) {
+      markViewed('post', id);
+    }
+  }, [id]);
+
   const handleReplyTo = (c: CommentItem, isTopLevel: boolean) => {
+    if (myId != null && c.user_id != null && Number(c.user_id) === myId) return;
     const parentId = isTopLevel ? c.id : (c.parent_id ?? c.id);
     const replyId = isTopLevel ? undefined : c.id;
     setReplyTarget({ parentId, replyId, username: c.author?.username || '用户' });
@@ -281,105 +326,127 @@ export default function PostDetailScreen({ route }: any) {
   const liked = normalizeFlag(post.is_liked ?? post.liked);
   const collected = normalizeFlag(post.is_collected ?? post.collected);
 
-  return (
-    <Screen scroll={false}>
-      <ScrollView
-        style={styles.flex}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={colors.primary} />
-        }
-        contentContainerStyle={styles.pad}>
-        <Text style={styles.title}>{post.title}</Text>
-        <Text style={styles.meta}>
-          {post.author?.username} · {post.like_count ?? 0} 赞
-          {post.view_count != null ? ` · ${post.view_count} 浏览` : ''}
-          {post.collect_count != null ? ` · ${post.collect_count} 收藏` : ''}
-        </Text>
-        <Text style={styles.body}>{post.content}</Text>
-        {post.images?.length ? (
-          <View style={styles.images}>
-            {post.images.map((u: string, i: number) => (
-              <Image key={i} source={{ uri: u }} style={styles.img} resizeMode="cover" />
-            ))}
-          </View>
-        ) : null}
-
-        <View style={styles.actions}>
-          <SocialActionRow
-            liked={liked}
-            collected={collected}
-            onLike={toggleLike}
-            onCollect={toggleCollect}
-            gap={14}
-            likeCount={post.like_count ?? 0}
-            collectCount={post.collect_count ?? 0}
-          />
+  const ListHeader = (
+    <View style={styles.pad}>
+      <Text style={styles.title}>{post.title}</Text>
+      <Text style={styles.meta}>
+        {post.author?.username} · {post.like_count ?? 0} 赞
+        {post.view_count != null ? ` · ${post.view_count} 浏览` : ''}
+        {post.collect_count != null ? ` · ${post.collect_count} 收藏` : ''}
+      </Text>
+      <Text style={styles.body}>{post.content}</Text>
+      {post.images?.length ? (
+        <View style={styles.images}>
+          {post.images.map((u: string, i: number) => (
+            <Image key={i} source={{ uri: u }} style={styles.img} resizeMode="cover" />
+          ))}
         </View>
+      ) : null}
 
-        <Text style={styles.section}>
-          评论{commentTotal > 0 ? ` ${commentTotal}` : ''}
-        </Text>
+      <View style={styles.actions}>
+        <SocialActionRow
+          liked={liked}
+          collected={collected}
+          onLike={toggleLike}
+          onCollect={toggleCollect}
+          gap={14}
+          likeCount={post.like_count ?? 0}
+          collectCount={post.collect_count ?? 0}
+        />
+      </View>
 
-        {comments.map((c) => (
-          <View key={c.id} style={styles.cmtBlock}>
-            {/* 顶层评论 */}
-            <TouchableOpacity activeOpacity={0.7} onPress={() => handleReplyTo(c, true)} style={styles.cmtRow}>
-              <View style={styles.cmtMain}>
-                <Text style={styles.cmtUser}>{c.author?.username || '用户'}</Text>
-                <Text style={styles.cmtBody}>{c.content}</Text>
-              </View>
-              <TouchableOpacity onPress={() => toggleCommentLike(c)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={styles.likeBtn}>
-                <Ionicons name={c.is_liked ? 'heart' : 'heart-outline'} size={16} color={c.is_liked ? '#EF4444' : colors.textMuted} />
-                {(c.like_count ?? 0) > 0 ? <Text style={styles.likeCount}>{c.like_count}</Text> : null}
-              </TouchableOpacity>
-            </TouchableOpacity>
+      <Text style={styles.section}>
+        评论{commentTotal > 0 ? ` ${commentTotal}` : ''}
+      </Text>
+    </View>
+  );
 
-            {/* top3 热门预览回复 */}
-            {c.top_replies?.map((r) => (
-              <TouchableOpacity
-                key={r.id}
-                activeOpacity={0.7}
-                onPress={() => handleReplyTo(r, false)}
-                style={styles.previewRow}>
-                <View style={styles.cmtMain}>
-                  <Text style={styles.cmtUser}>
-                    {r.author?.username || '用户'}
-                    {r.reply_to_author ? (
-                      <Text style={styles.replyArrow}>
-                        {' \u25B8 '}
-                        <Text style={styles.replyTargetUser}>{r.reply_to_author.username}</Text>
-                      </Text>
-                    ) : null}
-                  </Text>
-                  <Text style={styles.cmtBody} numberOfLines={2}>{r.content}</Text>
-                </View>
-                <TouchableOpacity
-                  onPress={() => togglePreviewLike(c.id, r)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  style={styles.likeBtn}>
-                  <Ionicons name={r.is_liked ? 'heart' : 'heart-outline'} size={14} color={r.is_liked ? '#EF4444' : colors.textMuted} />
-                  {(r.like_count ?? 0) > 0 ? <Text style={styles.likeCount}>{r.like_count}</Text> : null}
-                </TouchableOpacity>
-              </TouchableOpacity>
-            ))}
+  const ListFooter = hasMore ? (
+    <View style={styles.footerLoader}>
+      {loadingMore ? <ActivityIndicator color={colors.primary} /> : null}
+    </View>
+  ) : comments.length > 0 ? (
+    <Text style={styles.footerEnd}>没有更多了</Text>
+  ) : null;
 
-            {/* 查看全部回复入口 */}
-            {(c.reply_count ?? 0) > 0 ? (
-              <TouchableOpacity onPress={() => openReplies(c)} style={styles.viewAllBtn}>
-                <Text style={styles.viewAllText}>
-                  {(c.reply_count ?? 0) > (c.top_replies?.length ?? 0)
-                    ? `查看全部 ${c.reply_count} 条回复`
-                    : `查看 ${c.reply_count} 条回复`}
+  const renderComment = ({ item: c }: { item: CommentItem }) => (
+    <View style={styles.cmtBlock}>
+      <TouchableOpacity activeOpacity={0.7} onPress={() => handleReplyTo(c, true)} style={styles.cmtRow}>
+        <View style={styles.cmtMain}>
+          <Text style={styles.cmtUser}>{c.author?.username || '用户'}</Text>
+          <Text style={styles.cmtBody}>{c.content}</Text>
+        </View>
+        <TouchableOpacity onPress={() => toggleCommentLike(c)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={styles.likeBtn}>
+          <Ionicons name={c.is_liked ? 'heart' : 'heart-outline'} size={16} color={c.is_liked ? '#EF4444' : colors.textMuted} />
+          {(c.like_count ?? 0) > 0 ? <Text style={styles.likeCount}>{c.like_count}</Text> : null}
+        </TouchableOpacity>
+      </TouchableOpacity>
+
+      {c.top_replies?.map((r) => (
+        <TouchableOpacity
+          key={r.id}
+          activeOpacity={0.7}
+          onPress={() => handleReplyTo(r, false)}
+          style={styles.previewRow}>
+          <View style={styles.cmtMain}>
+            <Text style={styles.cmtUser}>
+              {r.author?.username || '用户'}
+              {r.reply_to_author ? (
+                <Text style={styles.replyArrow}>
+                  {' \u25B8 '}
+                  <Text style={styles.replyTargetUser}>{r.reply_to_author.username}</Text>
                 </Text>
-                <Ionicons name="chevron-forward" size={14} color={colors.primary} />
-              </TouchableOpacity>
-            ) : null}
+              ) : null}
+            </Text>
+            <Text style={styles.cmtBody} numberOfLines={2}>{r.content}</Text>
           </View>
-        ))}
+          <TouchableOpacity
+            onPress={() => togglePreviewLike(c.id, r)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            style={styles.likeBtn}>
+            <Ionicons name={r.is_liked ? 'heart' : 'heart-outline'} size={14} color={r.is_liked ? '#EF4444' : colors.textMuted} />
+            {(r.like_count ?? 0) > 0 ? <Text style={styles.likeCount}>{r.like_count}</Text> : null}
+          </TouchableOpacity>
+        </TouchableOpacity>
+      ))}
 
-        {comments.length === 0 ? (
-          <Text style={styles.muted}>暂无评论，来抢沙发</Text>
-        ) : null}
+      {(c.reply_count ?? 0) > 0 ? (
+        <TouchableOpacity onPress={() => openReplies(c)} style={styles.viewAllBtn}>
+          <Text style={styles.viewAllText}>
+            {(c.reply_count ?? 0) > (c.top_replies?.length ?? 0)
+              ? `查看全部 ${c.reply_count} 条回复`
+              : `查看 ${c.reply_count} 条回复`}
+          </Text>
+          <Ionicons name="chevron-forward" size={14} color={colors.primary} />
+        </TouchableOpacity>
+      ) : null}
+    </View>
+  );
+
+  return (
+    <Screen scroll={false} edges={['top', 'left', 'right', 'bottom']}>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={90}>
+        <FlatList
+          style={styles.flex}
+          data={comments}
+          keyExtractor={(i) => String(i.id)}
+          renderItem={renderComment}
+          ListHeaderComponent={ListHeader}
+          ListEmptyComponent={
+            <Text style={[styles.muted, styles.emptyCmt]}>暂无评论，来抢沙发</Text>
+          }
+          ListFooterComponent={ListFooter}
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.4}
+          keyboardShouldPersistTaps="handled"
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={colors.primary} />
+          }
+          contentContainerStyle={styles.listContent}
+        />
 
         {replyTarget ? (
           <View style={styles.replyHint}>
@@ -402,7 +469,7 @@ export default function PostDetailScreen({ route }: any) {
           />
           <PrimaryButton title="发送" onPress={sendComment} style={styles.sendBtn} />
         </View>
-      </ScrollView>
+      </KeyboardAvoidingView>
     </Screen>
   );
 }
@@ -411,7 +478,8 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   emptyWrap: { flex: 1, position: 'relative' },
   emptyScroll: { flexGrow: 1, justifyContent: 'center', padding: space.md },
-  pad: { padding: space.md, paddingBottom: 40 },
+  pad: { padding: space.md },
+  listContent: { paddingBottom: 12, paddingHorizontal: space.md },
   title: { fontSize: 22, fontWeight: '700', color: colors.text },
   meta: { marginTop: 8, fontSize: 13, color: colors.textSecondary },
   body: { marginTop: 16, fontSize: 16, lineHeight: 24, color: colors.text },
@@ -460,23 +528,36 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: 6,
-    paddingHorizontal: 4,
-    marginTop: 8,
+    paddingHorizontal: space.md,
     backgroundColor: colors.primaryLight,
-    borderRadius: radius.sm,
   },
   replyHintText: { fontSize: 13, color: colors.primary },
   replyHintCancel: { fontSize: 13, color: colors.textMuted, paddingHorizontal: 8 },
   muted: { color: colors.textMuted, fontSize: 14 },
-  inputRow: { marginTop: 16, gap: 10 },
+  emptyCmt: { padding: space.md },
+  footerLoader: { paddingVertical: 14, alignItems: 'center' },
+  footerEnd: { textAlign: 'center', color: colors.textMuted, fontSize: 12, paddingVertical: 12 },
+  inputRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 8,
+    paddingHorizontal: space.md,
+    paddingTop: 8,
+    paddingBottom: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    backgroundColor: colors.surface,
+  },
   input: {
+    flex: 1,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.sm,
     padding: 10,
     minHeight: 44,
+    maxHeight: 100,
     color: colors.text,
     backgroundColor: colors.surface,
   },
-  sendBtn: { paddingVertical: 10 },
+  sendBtn: { paddingVertical: 10, paddingHorizontal: 12 },
 });

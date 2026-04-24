@@ -3,6 +3,8 @@
 <network-security-config>
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="true">api.xiaoen.xyz</domain>
+        <!-- 地图瓦片（Martin :50001）与寻路服务（GraphHopper :50002）为 HTTP 明文 -->
+        <domain includeSubdomains="true">oeiw1426422.bohrium.tech</domain>
         <!-- 本地开发：模拟器访问宿主机、本机后端 -->
         <domain includeSubdomains="true">localhost</domain>
         <domain includeSubdomains="true">127.0.0.1</domain>

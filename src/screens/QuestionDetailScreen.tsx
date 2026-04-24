@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -22,6 +22,7 @@ import LoadingMask from '../components/LoadingMask';
 import SocialActionRow from '../components/SocialActionRow';
 import { colors, radius, space } from '../theme/colors';
 import { cacheGet, cacheSet } from '../utils/cacheStorage';
+import { markViewed } from '../utils/viewedTracker';
 
 const EXT_Q = 2;
 
@@ -103,6 +104,13 @@ export default function QuestionDetailScreen({ route, navigation }: any) {
       load();
     }, [id]),
   );
+
+  // 进入详情即打标：深链 / 通知 / 跨页面跳转都能正确记录已看
+  useEffect(() => {
+    if (Number.isFinite(id) && id > 0) {
+      markViewed('question', id);
+    }
+  }, [id]);
 
   const toggleLike = async () => {
     if (!q) {

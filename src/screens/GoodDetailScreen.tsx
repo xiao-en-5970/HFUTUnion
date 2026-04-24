@@ -20,11 +20,13 @@ import { likeAdd, likeRemove, collectAdd, collectRemove } from '../api/social';
 import Screen from '../components/Screen';
 import PrimaryButton from '../components/PrimaryButton';
 import SocialActionRow from '../components/SocialActionRow';
-import { colors, space } from '../theme/colors';
+import Ionicons from 'react-native-vector-icons/Ionicons';
+import { colors, radius, space } from '../theme/colors';
 import { cacheGet, cacheSet } from '../utils/cacheStorage';
 import { fetchUserInfo } from '../api/user';
 import { readCachedUserInfo } from '../utils/userCache';
 import { resolveCurrentUserId } from '../utils/userId';
+import { markViewed } from '../utils/viewedTracker';
 
 const EXT_GOODS = 4;
 
@@ -130,6 +132,13 @@ export default function GoodDetailScreen({ route }: any) {
       load();
     }, [load]),
   );
+
+  // 进入详情即打标：列表外入口（聊天链接 / 推送等）也能正确变灰
+  useEffect(() => {
+    if (Number.isFinite(id) && id > 0) {
+      markViewed('good', id);
+    }
+  }, [id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -370,9 +379,26 @@ export default function GoodDetailScreen({ route }: any) {
             </View>
             <Text style={styles.meta}>库存 {g.stock}</Text>
           </View>
-          <Text style={styles.addr}>
-            {g.goods_addr || g.pickup_addr || '见详情'}
-          </Text>
+          <View style={styles.addrRow}>
+            <Text style={styles.addr}>
+              {g.goods_addr || g.pickup_addr || '见详情'}
+            </Text>
+            {g.goods_lat != null && g.goods_lng != null ? (
+              <TouchableOpacity
+                style={styles.routeBtn}
+                onPress={() =>
+                  navigation.navigate('MapRoute', {
+                    dest: { lng: Number(g.goods_lng), lat: Number(g.goods_lat) },
+                    destLabel: g.goods_addr || g.pickup_addr || '商品位置',
+                    title: '到商品的路线',
+                  })
+                }
+                activeOpacity={0.85}>
+                <Ionicons name="navigate-outline" size={14} color={colors.primary} />
+                <Text style={styles.routeBtnText}>路线</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
           {g.view_count != null || g.like_count != null || g.collect_count != null ? (
             <Text style={styles.statsLine}>
               {[
@@ -462,7 +488,23 @@ const styles = StyleSheet.create({
   },
   chipText: { fontSize: 13, fontWeight: '600', color: colors.primary },
   meta: { fontSize: 13, color: colors.textSecondary },
-  addr: { fontSize: 14, color: colors.textSecondary, marginTop: 8, lineHeight: 20 },
+  addr: { fontSize: 14, color: colors.textSecondary, marginTop: 8, lineHeight: 20, flex: 1 },
+  addrRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  routeBtn: {
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    backgroundColor: colors.primaryLight,
+    borderRadius: radius.xl,
+  },
+  routeBtnText: { color: colors.primary, fontSize: 12, fontWeight: '700' },
   statsLine: {
     marginTop: 10,
     fontSize: 12,

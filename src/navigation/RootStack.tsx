@@ -26,6 +26,9 @@ import EditQuestionScreen from '../screens/EditQuestionScreen';
 import EditAnswerScreen from '../screens/EditAnswerScreen';
 import CommentRepliesScreen from '../screens/CommentRepliesScreen';
 import BootstrapScreen from '../screens/BootstrapScreen';
+import MapPickerScreen from '../screens/MapPickerScreen';
+import MapRouteScreen from '../screens/MapRouteScreen';
+import type { LngLat } from '../utils/mapHtml';
 
 export type RootStackParamList = {
   Bootstrap: undefined;
@@ -64,6 +67,19 @@ export type RootStackParamList = {
     commentIsLiked?: boolean;
   };
   SchoolBind: undefined;
+  MapPicker: {
+    initCenter?: LngLat;
+    title?: string;
+    minPickZoom?: number;
+  } | undefined;
+  MapRoute: {
+    dest: LngLat;
+    origin?: LngLat;
+    destLabel?: string;
+    originLabel?: string;
+    profile?: string;
+    title?: string;
+  };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -123,6 +139,8 @@ export default function RootStack() {
       <Stack.Screen name="CommentReplies" component={CommentRepliesScreen} options={{ title: '回复' }} />
       <Stack.Screen name="SchoolBind" component={SchoolBindScreen} options={{ title: '学籍认证' }} />
       <Stack.Screen name="EditProfile" component={EditProfileScreen} options={{ title: '编辑资料' }} />
+      <Stack.Screen name="MapPicker" component={MapPickerScreen} options={{ title: '选择位置' }} />
+      <Stack.Screen name="MapRoute" component={MapRouteScreen} options={{ title: '路线' }} />
     </Stack.Navigator>
   );
 }

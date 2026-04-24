@@ -23,7 +23,11 @@ import type { PostFeedMode } from '../api/article';
 
 const FEED_OPTIONS: { value: PostFeedMode; label: string; hint: string }[] = [
   { value: 'latest', label: '最新', hint: '按发帖时间，最新在前' },
-  { value: 'recommend', label: '推荐', hint: '综合排序，猜你可能感兴趣' },
+  {
+    value: 'recommend',
+    label: '推荐',
+    hint: '根据你的浏览、点赞、收藏个性化排序，每次下拉刷新都是新一版',
+  },
   { value: 'hot', label: '热门', hint: '近期互动多、更活跃的内容' },
 ];
 
