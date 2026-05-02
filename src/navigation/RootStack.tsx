@@ -28,6 +28,8 @@ import CommentRepliesScreen from '../screens/CommentRepliesScreen';
 import BootstrapScreen from '../screens/BootstrapScreen';
 import MapPickerScreen from '../screens/MapPickerScreen';
 import MapRouteScreen from '../screens/MapRouteScreen';
+import SettingsScreen from '../screens/SettingsScreen';
+import MessagesScreen from '../screens/MessagesScreen';
 import type { LngLat } from '../utils/mapHtml';
 
 export type RootStackParamList = {
@@ -46,7 +48,7 @@ export type RootStackParamList = {
   EditAnswer: { id: number };
   CreateQuestion: undefined;
   GoodDetail: { id: number };
-  GoodCreate: { goodId?: number } | undefined;
+  GoodCreate: { goodId?: number; initialCategory?: 1 | 2 } | undefined;
   MyContent: undefined;
   MyCollects: undefined;
   OrderDetail: { id: number };
@@ -80,6 +82,8 @@ export type RootStackParamList = {
     profile?: string;
     title?: string;
   };
+  Settings: undefined;
+  Messages: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -141,6 +145,8 @@ export default function RootStack() {
       <Stack.Screen name="EditProfile" component={EditProfileScreen} options={{ title: '编辑资料' }} />
       <Stack.Screen name="MapPicker" component={MapPickerScreen} options={{ title: '选择位置' }} />
       <Stack.Screen name="MapRoute" component={MapRouteScreen} options={{ title: '路线' }} />
+      <Stack.Screen name="Settings" component={SettingsScreen} options={{ title: '设置' }} />
+      <Stack.Screen name="Messages" component={MessagesScreen} options={{ headerShown: false }} />
     </Stack.Navigator>
   );
 }

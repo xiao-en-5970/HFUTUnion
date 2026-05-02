@@ -16,13 +16,20 @@ import {
   type ChatConversation,
   type ChatUnreadSummary,
 } from '../api/chat';
-import Screen from '../components/Screen';
 import LoadingMask from '../components/LoadingMask';
-import { colors, radius, space } from '../theme/colors';
+import { colors, space } from '../theme/colors';
 import { chatListStatusLabel } from '../utils/orderChatUi';
 import { cacheGet, cacheSet } from '../utils/cacheStorage';
+import { useMessagesUnread } from '../context/MessagesUnreadContext';
+
+export type OrderChatTab = 'withSellers' | 'withBuyers';
+
+type Props = {
+  tab: OrderChatTab;
+};
 
 const CHAT_LIST_CACHE_KEY = 'chat:conversations:v1';
+const UNREAD_POLL_MS = 35_000;
 
 function formatListTime(iso?: string): string {
   if (!iso) {
@@ -45,44 +52,29 @@ function formatListTime(iso?: string): string {
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
-/** 分栏：我作为买家 → 会话对方是卖家；我作为卖家 → 对方是买家 */
-type ChatTab = 'withSellers' | 'withBuyers';
-
-const UNREAD_POLL_MS = 35_000;
-
-function tabBarBadgeFromTotal(total: number): string | number | undefined {
-  if (total <= 0) {
-    return undefined;
-  }
-  return total > 99 ? '99+' : total;
-}
-
-export default function ChatListScreen() {
+/**
+ * 订单聊天会话列表（只负责内容，不含顶部 tab；由 MessagesScreen 提供 tab 切换）。
+ * tab 指定当前是「我是买家 / 看卖家会话」还是「我是卖家 / 看买家会话」。
+ */
+export default function OrderChatList({ tab }: Props) {
   const navigation = useNavigation<any>();
+  const { refresh: refreshUnread } = useMessagesUnread();
   const [list, setList] = useState<ChatConversation[]>([]);
-  const [tab, setTab] = useState<ChatTab>('withSellers');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const applyUnreadSummary = useCallback(
-    (sum: ChatUnreadSummary) => {
-      const t = sum.total ?? 0;
-      navigation.setOptions({
-        tabBarBadge: tabBarBadgeFromTotal(t),
-      });
-      setList((prev) => {
-        if (prev.length === 0) {
-          return prev;
-        }
-        const by = sum.by_order || {};
-        return prev.map((c) => ({
-          ...c,
-          unreadCount: by[String(c.orderId)] ?? 0,
-        }));
-      });
-    },
-    [navigation],
-  );
+  const applyUnreadSummary = useCallback((sum: ChatUnreadSummary) => {
+    setList((prev) => {
+      if (prev.length === 0) {
+        return prev;
+      }
+      const by = sum.by_order || {};
+      return prev.map((c) => ({
+        ...c,
+        unreadCount: by[String(c.orderId)] ?? 0,
+      }));
+    });
+  }, []);
 
   const load = useCallback(async () => {
     let hadCache = false;
@@ -94,9 +86,6 @@ export default function ChatListScreen() {
         hadCache = true;
         setList(cached.list);
         setLoading(false);
-        navigation.setOptions({
-          tabBarBadge: tabBarBadgeFromTotal(cached.total ?? 0),
-        });
       }
     } catch {
       /* noop */
@@ -108,19 +97,17 @@ export default function ChatListScreen() {
       const { list: rows, total } = await fetchChatConversationsWithUnread();
       setList(rows);
       await cacheSet(CHAT_LIST_CACHE_KEY, { list: rows, total });
-      navigation.setOptions({
-        tabBarBadge: tabBarBadgeFromTotal(total),
-      });
+      // 主动触发全局 unread 汇总刷新，让底栏角标尽快响应
+      refreshUnread().catch(() => {});
     } catch {
       if (!hadCache) {
         setList([]);
-        navigation.setOptions({ tabBarBadge: undefined });
       }
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [navigation]);
+  }, [refreshUnread]);
 
   const loadRef = useRef(load);
   loadRef.current = load;
@@ -148,32 +135,11 @@ export default function ChatListScreen() {
   }, [list, tab]);
 
   return (
-    <Screen scroll={false} edges={['top']}>
-      <View style={styles.screenInner}>
+    <View style={styles.flex}>
       <LoadingMask visible={loading && list.length === 0} hint="正在加载会话…" />
-      <View style={styles.topBar}>
-        <Text style={styles.pageTitle}>聊天</Text>
-        <Text style={styles.pageHint}>订单相关的沟通集中在这里</Text>
-      </View>
-
-      <View style={styles.tabs}>
-        <TouchableOpacity
-          style={[styles.tab, tab === 'withSellers' && styles.tabOn]}
-          onPress={() => setTab('withSellers')}>
-          <Text style={[styles.tabText, tab === 'withSellers' && styles.tabTextOn]}>我是买家</Text>
-          <Text style={[styles.tabSub, tab === 'withSellers' && styles.tabSubOn]}>与卖家会话</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.tab, tab === 'withBuyers' && styles.tabOn]}
-          onPress={() => setTab('withBuyers')}>
-          <Text style={[styles.tabText, tab === 'withBuyers' && styles.tabTextOn]}>我是卖家</Text>
-          <Text style={[styles.tabSub, tab === 'withBuyers' && styles.tabSubOn]}>与买家会话</Text>
-        </TouchableOpacity>
-      </View>
-
       {!(loading && list.length === 0) ? (
         <FlatList
-          style={styles.flexList}
+          style={styles.flex}
           data={filtered}
           keyExtractor={(item) => String(item.orderId)}
           refreshControl={
@@ -203,7 +169,12 @@ export default function ChatListScreen() {
             const perspective = item.counterpartRole === 'seller' ? 'buyer' : 'seller';
             const statusChip =
               item.orderStatus != null
-                ? chatListStatusLabel(perspective, item.orderStatus, item.goodsType)
+                ? chatListStatusLabel(
+                    perspective,
+                    item.orderStatus,
+                    item.goodsType,
+                    item.goodsCategory,
+                  )
                 : item.orderStatusLabel || '';
             return (
               <TouchableOpacity
@@ -255,53 +226,12 @@ export default function ChatListScreen() {
           }}
         />
       ) : null}
-      </View>
-    </Screen>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  screenInner: { flex: 1, position: 'relative' },
-  flexList: { flex: 1 },
-  topBar: {
-    paddingHorizontal: space.md,
-    paddingTop: space.sm,
-    paddingBottom: space.md,
-    backgroundColor: colors.bg,
-  },
-  pageTitle: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: colors.text,
-    letterSpacing: 0.3,
-  },
-  pageHint: {
-    marginTop: 6,
-    fontSize: 12,
-    color: colors.textMuted,
-    lineHeight: 18,
-  },
-  tabs: {
-    flexDirection: 'row',
-    marginHorizontal: space.md,
-    marginBottom: space.sm,
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    padding: 4,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  tab: {
-    flex: 1,
-    paddingVertical: 10,
-    alignItems: 'center',
-    borderRadius: radius.sm,
-  },
-  tabOn: { backgroundColor: colors.primaryLight },
-  tabText: { fontSize: 15, color: colors.textSecondary, fontWeight: '600' },
-  tabTextOn: { color: colors.primary },
-  tabSub: { fontSize: 11, color: colors.textMuted, marginTop: 2 },
-  tabSubOn: { color: colors.primary },
+  flex: { flex: 1 },
   list: { flex: 1, paddingBottom: 24, backgroundColor: colors.surface },
   avatarCol: { width: 56, alignItems: 'center' },
   statusChip: {

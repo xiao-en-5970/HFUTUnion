@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -6,8 +6,6 @@ import {
   StyleSheet,
   Modal,
   Pressable,
-  Animated,
-  Easing,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -17,7 +15,6 @@ import { colors, radius, space } from '../theme/colors';
 import {
   CommunityFeedProvider,
   useCommunityFeedMode,
-  type CommunityTab,
 } from '../context/CommunityFeedContext';
 import type { PostFeedMode } from '../api/article';
 
@@ -26,16 +23,9 @@ const FEED_OPTIONS: { value: PostFeedMode; label: string; hint: string }[] = [
   {
     value: 'recommend',
     label: '推荐',
-    hint: '根据你的浏览、点赞、收藏个性化排序，每次下拉刷新都是新一版',
+    hint: '根据你的浏览、点赞、收藏个性化排序',
   },
   { value: 'hot', label: '热门', hint: '近期互动多、更活跃的内容' },
-];
-
-const TABS: { key: CommunityTab; label: string }[] = [
-  { key: 'combined', label: '综合' },
-  { key: 'post', label: '帖子' },
-  { key: 'help', label: '求助' },
-  { key: 'answer', label: '回答' },
 ];
 
 function CommunityHeader() {
@@ -46,7 +36,10 @@ function CommunityHeader() {
   return (
     <>
       <View style={styles.topBar}>
-        <Text style={styles.topTitle}>社区</Text>
+        <View style={styles.topLeft}>
+          <Text style={styles.topTitle}>社区</Text>
+          <Text style={styles.topHint}>帖子 · 回答</Text>
+        </View>
         <TouchableOpacity
           style={styles.modeBtn}
           onPress={() => setOpen(true)}
@@ -61,8 +54,8 @@ function CommunityHeader() {
         <View style={styles.modalOverlay}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setOpen(false)} />
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>帖子怎么排序</Text>
-            <Text style={styles.modalSub}>选一种浏览方式即可，随时可换。</Text>
+            <Text style={styles.modalTitle}>排序方式</Text>
+            <Text style={styles.modalSub}>随时可切换。</Text>
             {FEED_OPTIONS.map((opt) => {
               const on = opt.value === feedMode;
               return (
@@ -98,82 +91,13 @@ function CommunityHeader() {
   );
 }
 
-const COMMUNITY_TAB_ENTER_Y = 8;
-
-function CommunityFeedWithFade({ navigation }: { navigation: any }) {
-  const { communityTab } = useCommunityFeedMode();
-  const opacity = useRef(new Animated.Value(1)).current;
-  const translateY = useRef(new Animated.Value(0)).current;
-  const skipFirst = useRef(true);
-
-  useEffect(() => {
-    if (skipFirst.current) {
-      skipFirst.current = false;
-      return;
-    }
-    opacity.setValue(0.88);
-    translateY.setValue(COMMUNITY_TAB_ENTER_Y);
-    Animated.parallel([
-      Animated.timing(opacity, {
-        toValue: 1,
-        duration: 280,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.timing(translateY, {
-        toValue: 0,
-        duration: 280,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [communityTab, opacity, translateY]);
-
-  return (
-    <Animated.View
-      style={[
-        styles.flex,
-        {
-          opacity,
-          transform: [{ translateY }],
-        },
-      ]}>
-      <CommunityFeedScreen navigation={navigation} />
-    </Animated.View>
-  );
-}
-
-function CommunityTabBar() {
-  const { communityTab, setCommunityTab } = useCommunityFeedMode();
-
-  return (
-    <View style={styles.tabRow}>
-      {TABS.map(({ key, label }) => {
-        const on = communityTab === key;
-        return (
-          <TouchableOpacity
-            key={key}
-            style={styles.tabHit}
-            onPress={() => setCommunityTab(key)}
-            activeOpacity={0.7}
-            hitSlop={{ top: 8, bottom: 8 }}>
-            <Text style={[styles.tabText, on && styles.tabTextActive]}>{label}</Text>
-            {on ? <View style={styles.tabUnderline} /> : null}
-          </TouchableOpacity>
-        );
-      })}
-    </View>
-  );
-}
-
 export default function Community() {
   const navigation = useNavigation<any>();
   return (
     <CommunityFeedProvider>
       <SafeAreaView style={styles.safe} edges={['top']}>
         <CommunityHeader />
-        <CommunityTabBar />
-        <CommunityFeedWithFade navigation={navigation} />
+        <CommunityFeedScreen navigation={navigation} />
       </SafeAreaView>
     </CommunityFeedProvider>
   );
@@ -181,18 +105,19 @@ export default function Community() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
-  flex: { flex: 1 },
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: space.md,
-    paddingBottom: space.sm,
+    paddingVertical: space.sm,
     backgroundColor: colors.surface,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border,
   },
+  topLeft: { flexDirection: 'column' },
   topTitle: { fontSize: 20, fontWeight: '800', color: colors.text, letterSpacing: 0.3 },
+  topHint: { marginTop: 2, fontSize: 11, color: colors.textMuted },
   modeBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -205,39 +130,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primaryLight,
   },
   modeBtnText: { fontSize: 15, fontWeight: '700', color: colors.primary },
-  tabRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-around',
-    paddingHorizontal: space.sm,
-    paddingTop: 8,
-    paddingBottom: 10,
-    backgroundColor: colors.surface,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-  },
-  tabHit: {
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingBottom: 2,
-    minWidth: 56,
-  },
-  tabText: {
-    fontSize: 16,
-    color: colors.textSecondary,
-    fontWeight: '400',
-  },
-  tabTextActive: {
-    fontWeight: '700',
-    color: colors.text,
-  },
-  tabUnderline: {
-    marginTop: 8,
-    height: 2,
-    width: '100%',
-    backgroundColor: colors.primary,
-    borderRadius: 1,
-  },
   modalOverlay: {
     flex: 1,
     backgroundColor: colors.overlay,

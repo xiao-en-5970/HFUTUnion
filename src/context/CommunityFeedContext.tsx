@@ -1,25 +1,17 @@
 import React, { createContext, useContext, useMemo, useState } from 'react';
 import type { PostFeedMode } from '../api/article';
 
-/** 综合=帖子+回答+（仅 0 回答且接口返回了 answer_count 的）求助；帖子/求助/回答为单列 */
-export type CommunityTab = 'combined' | 'post' | 'help' | 'answer';
-
 type Ctx = {
   feedMode: PostFeedMode;
   setFeedMode: (m: PostFeedMode) => void;
-  communityTab: CommunityTab;
-  setCommunityTab: (t: CommunityTab) => void;
 };
 
 const CommunityFeedContext = createContext<Ctx | null>(null);
 
 export function CommunityFeedProvider({ children }: { children: React.ReactNode }) {
-  const [feedMode, setFeedMode] = useState<PostFeedMode>('latest');
-  const [communityTab, setCommunityTab] = useState<CommunityTab>('combined');
-  const value = useMemo(
-    () => ({ feedMode, setFeedMode, communityTab, setCommunityTab }),
-    [feedMode, communityTab],
-  );
+  // 默认进入即个性化推荐；用户可在顶栏的排序下拉里切到「最新 / 热门」
+  const [feedMode, setFeedMode] = useState<PostFeedMode>('recommend');
+  const value = useMemo(() => ({ feedMode, setFeedMode }), [feedMode]);
   return (
     <CommunityFeedContext.Provider value={value}>{children}</CommunityFeedContext.Provider>
   );

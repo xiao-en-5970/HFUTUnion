@@ -33,15 +33,18 @@ import {
   confirmDelivery,
   confirmReceipt,
   updateOrderLocation,
+  helpPublisherPay,
   type OrderRow,
 } from '../api/orders';
 import { uploadOssUserFile } from '../api/oss';
 import { fetchUserInfo, fetchUserLocations, type UserLocation } from '../api/user';
 import CheckoutAddressModal, { type PaymentProofPick } from '../components/CheckoutAddressModal';
+import PaymentQrModal from '../components/PaymentQrModal';
 import Screen from '../components/Screen';
 import { colors, radius, space } from '../theme/colors';
 import { formatDistance } from '../utils/geo';
 import {
+  GOODS_CATEGORY_HELP,
   ORDER_CHAT_BUYER_PAYMENT_CONFIRM,
   ORDER_CHAT_SELLER_RECEIPT_CONFIRM,
 } from '../utils/orderChatUi';
@@ -86,6 +89,8 @@ export default function OrderChatScreen() {
   const [uploading, setUploading] = useState(false);
   /** null | checkout=完善地址+付款 | proposal=申请改址 */
   const [checkoutMode, setCheckoutMode] = useState<null | 'checkout' | 'proposal'>(null);
+  /** 收款码大图弹窗：买家在待付款阶段点开 */
+  const [qrModalVisible, setQrModalVisible] = useState(false);
   const [locations, setLocations] = useState<UserLocation[]>([]);
   const [locLoading, setLocLoading] = useState(false);
   const [attachMenuVisible, setAttachMenuVisible] = useState(false);
@@ -97,6 +102,7 @@ export default function OrderChatScreen() {
 
   const st = order?.order_status ?? 0;
   const gt = order?.good?.goods_type ?? 0;
+  const isHelp = order?.good?.goods_category === GOODS_CATEGORY_HELP;
   const awaitBuyerLocation = st === ORDER_STATUS_AWAIT_BUYER_LOCATION;
 
   const isBuyer =
@@ -223,7 +229,7 @@ export default function OrderChatScreen() {
         proposal_only: true,
       });
       await loadOrder();
-      Alert.alert('已提交', '卖方确认后将更新收货地址并重新计算距离');
+      Alert.alert('已提交', '等卖家确认');
     } catch (e: any) {
       Alert.alert('提交失败', e?.message || '');
     } finally {
@@ -449,6 +455,38 @@ export default function OrderChatScreen() {
     }
   };
 
+  // 有偿求助：发布者上传付酬截图，订单从「进行中」转到「已付酬 · 待接单者确认」
+  const onHelpPublisherPay = async () => {
+    if (!myId) {
+      Alert.alert('提示', '请先登录');
+      return;
+    }
+    const r = await launchImageLibrary({ mediaType: 'photo', selectionLimit: 1 });
+    if (r.didCancel || !r.assets?.[0]?.uri) {
+      return;
+    }
+    const a = r.assets[0];
+    const uri = a.uri;
+    if (!uri) {
+      return;
+    }
+    try {
+      setActionBusy(true);
+      const imgUrl = await uploadOssUserFile(
+        myId,
+        uri,
+        a.type || 'image/jpeg',
+        a.fileName || 'help_pay.jpg',
+      );
+      await helpPublisherPay(orderId, { payment_image: imgUrl });
+      await refreshAll();
+    } catch (e: any) {
+      Alert.alert('操作失败', e?.message || '');
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
   const openAttachMenu = () => {
     setAttachMenuVisible(true);
   };
@@ -490,14 +528,14 @@ export default function OrderChatScreen() {
   };
 
   const renderSellerPendingBuyerBanner = () => {
-    if (!order || !isSeller || !hasPendingBuyerAddr) {
+    if (!order || !isSeller || !hasPendingBuyerAddr || isHelp) {
       return null;
     }
     return (
       <View style={[styles.banner, styles.bannerPending]}>
-        <Text style={styles.bannerTitle}>买方申请修改收货地址</Text>
+        <Text style={styles.bannerTitle}>买家申请改址</Text>
         <Text style={styles.bannerAddr}>新地址：{order.pending_receiver_addr || '—'}</Text>
-        <Text style={styles.bannerDesc}>确认后将更新订单收货信息并重新计算距离。</Text>
+        <Text style={styles.bannerDesc}>确认后更新收货地</Text>
         <View style={styles.bannerRow}>
           <TouchableOpacity
             style={[styles.bannerBtnSm, actionBusy && styles.bannerBtnDisabled]}
@@ -520,6 +558,89 @@ export default function OrderChatScreen() {
     );
   };
 
+  const renderHelpBanner = () => {
+    if (!order) {
+      return null;
+    }
+    if (st === 5) {
+      return (
+        <View style={[styles.banner, styles.bannerHelp]}>
+          <Text style={styles.bannerTitle}>求助已取消</Text>
+          <Text style={styles.bannerDesc}>仍可在此沟通后续问题</Text>
+        </View>
+      );
+    }
+    if (st === 4) {
+      return (
+        <View style={[styles.banner, styles.bannerHelp]}>
+          <Text style={styles.bannerTitle}>任务已完成</Text>
+          <Text style={styles.bannerDesc}>酬劳已确认；如有问题请在此继续沟通</Text>
+        </View>
+      );
+    }
+    if (st === 1 && isSeller) {
+      return (
+        <View style={[styles.banner, styles.bannerHelp]}>
+          <Text style={styles.bannerTitle}>进行中 · 待您支付酬劳</Text>
+          <Text style={styles.bannerDesc}>
+            请与接单者在此协商进度；完成后上传付酬截图，接单者确认后任务关闭。
+          </Text>
+          <TouchableOpacity
+            style={[styles.bannerBtn, actionBusy && styles.bannerBtnDisabled]}
+            disabled={actionBusy}
+            onPress={onHelpPublisherPay}>
+            {actionBusy ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.bannerBtnText}>上传付酬截图</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    if (st === 1 && isBuyer) {
+      return (
+        <View style={[styles.banner, styles.bannerHelpMuted]}>
+          <Text style={styles.bannerTitle}>进行中</Text>
+          <Text style={styles.bannerDesc}>
+            请按求助内容完成任务；发布者会在完成后上传付酬截图。
+          </Text>
+        </View>
+      );
+    }
+    if (st === 3 && isBuyer) {
+      return (
+        <View style={[styles.banner, styles.bannerHelp]}>
+          <Text style={styles.bannerTitle}>发布者已付酬 · 待您确认</Text>
+          <Text style={styles.bannerDesc}>
+            请核对付酬截图；确认收到后点下方按钮，任务将标记为已完成。
+          </Text>
+          <TouchableOpacity
+            style={[styles.bannerBtn, actionBusy && styles.bannerBtnDisabled]}
+            disabled={actionBusy}
+            onPress={onConfirmReceipt}>
+            {actionBusy ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.bannerBtnText}>确认已收到酬劳</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    if (st === 3 && isSeller) {
+      return (
+        <View style={[styles.banner, styles.bannerHelpMuted]}>
+          <Text style={styles.bannerTitle}>已上传付酬 · 待对方确认</Text>
+          <Text style={styles.bannerDesc}>
+            等待接单者核对付酬截图并点「确认已收到酬劳」。
+          </Text>
+        </View>
+      );
+    }
+    return null;
+  };
+
   const renderBanner = () => {
     if (orderId && !order) {
       return (
@@ -531,33 +652,48 @@ export default function OrderChatScreen() {
     if (!order) {
       return null;
     }
+    if (isHelp) {
+      return renderHelpBanner();
+    }
     if (st === ORDER_STATUS_AWAIT_BUYER_LOCATION && isBuyer) {
+      const hasQr = !!order.good?.payment_qr_url;
       return (
         <View style={styles.banner}>
-          <Text style={styles.bannerTitle}>待付款 · 可先与卖家沟通</Text>
+          <Text style={styles.bannerTitle}>待付款</Text>
           <Text style={styles.bannerDesc}>
-            订单已创建，尚未提交收货地址与付款凭证。可先在此与卖家协商；准备好后请点「确认付款」选择地址并上传付款截图，提交后进入待卖方确认收款。
+            {hasQr
+              ? '扫卖家收款码付款，付款后点「确认付款」上传截图。'
+              : '卖家未提供收款码，请在聊天里商定付款方式，付款后点「确认付款」上传截图。'}
           </Text>
-          <TouchableOpacity
-            style={[styles.bannerBtn, actionBusy && styles.bannerBtnDisabled]}
-            disabled={actionBusy}
-            onPress={() => openAddressModal('checkout')}>
-            {actionBusy ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.bannerBtnText}>确认付款</Text>
-            )}
-          </TouchableOpacity>
+          <View style={styles.bannerBtnRow}>
+            {hasQr ? (
+              <TouchableOpacity
+                style={styles.bannerQrBtn}
+                activeOpacity={0.85}
+                onPress={() => setQrModalVisible(true)}>
+                <Ionicons name="qr-code-outline" size={16} color={colors.primary} />
+                <Text style={styles.bannerQrText}>查看收款码</Text>
+              </TouchableOpacity>
+            ) : null}
+            <TouchableOpacity
+              style={[styles.bannerBtn, styles.bannerBtnGrow, actionBusy && styles.bannerBtnDisabled]}
+              disabled={actionBusy}
+              onPress={() => openAddressModal('checkout')}>
+              {actionBusy ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.bannerBtnText}>确认付款</Text>
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
       );
     }
     if (st === ORDER_STATUS_AWAIT_BUYER_LOCATION && isSeller) {
       return (
         <View style={[styles.banner, styles.bannerMuted]}>
-          <Text style={styles.bannerTitle}>待买方付款与地址</Text>
-          <Text style={styles.bannerDesc}>
-            买方尚未提交收货地址与付款凭证，可与对方沟通后再完成付款。
-          </Text>
+          <Text style={styles.bannerTitle}>待买家付款</Text>
+          <Text style={styles.bannerDesc}>买家还没付款，可先在此沟通</Text>
         </View>
       );
     }
@@ -565,15 +701,17 @@ export default function OrderChatScreen() {
       return (
         <View style={styles.banner}>
           <Text style={styles.bannerTitle}>订单已取消</Text>
-          <Text style={styles.bannerDesc}>仍可在此沟通后续问题</Text>
+          <Text style={styles.bannerDesc}>仍可在此沟通</Text>
         </View>
       );
     }
     if (st === 4) {
       return (
         <View style={styles.banner}>
-          <Text style={styles.bannerTitle}>交易已完成 · 售后中</Text>
-          <Text style={styles.bannerDesc}>如有问题请在此与{peerRole === 'seller' ? '卖家' : '买家'}协商</Text>
+          <Text style={styles.bannerTitle}>交易已完成</Text>
+          <Text style={styles.bannerDesc}>
+            有问题可继续和{peerRole === 'seller' ? '卖家' : '买家'}沟通
+          </Text>
         </View>
       );
     }
@@ -581,14 +719,12 @@ export default function OrderChatScreen() {
       const dm = order.distance_meters;
       return (
         <View style={[styles.banner, styles.bannerMuted]}>
-          <Text style={styles.bannerTitle}>待卖方确认收款</Text>
+          <Text style={styles.bannerTitle}>待卖家确认收款</Text>
           <Text style={styles.bannerAddr}>收货：{order.receiver_addr || '—'}</Text>
-          <Text style={styles.bannerAddr}>
-            直线距离：{dm != null ? formatDistance(dm) : '缺少坐标未计距'}
-          </Text>
-          <Text style={styles.bannerDesc}>
-            平台不经手资金。你已在下单时发送付款说明与付款截图；请等待卖家核对并确认收款。
-          </Text>
+          {dm != null ? (
+            <Text style={styles.bannerAddr}>直线距离：{formatDistance(dm)}</Text>
+          ) : null}
+          <Text style={styles.bannerDesc}>付款凭证已发送，等卖家确认</Text>
         </View>
       );
     }
@@ -597,13 +733,11 @@ export default function OrderChatScreen() {
       return (
         <View style={styles.banner}>
           <Text style={styles.bannerTitle}>待确认收款</Text>
-          <Text style={styles.bannerAddr}>买家收货地：{order.receiver_addr || '—'}</Text>
-          <Text style={styles.bannerAddr}>
-            直线距离：{dm != null ? formatDistance(dm) : '缺少坐标未计距'}
-          </Text>
-          <Text style={styles.bannerDesc}>
-            请核对买家聊天中的付款说明与付款截图。确认收款须上传收款证明截图，将发送说明文字与图片后完成确认。
-          </Text>
+          <Text style={styles.bannerAddr}>买家收货：{order.receiver_addr || '—'}</Text>
+          {dm != null ? (
+            <Text style={styles.bannerAddr}>直线距离：{formatDistance(dm)}</Text>
+          ) : null}
+          <Text style={styles.bannerDesc}>核对买家付款截图后，上传你的收款截图完成确认</Text>
           <TouchableOpacity
             style={[styles.bannerBtn, actionBusy && styles.bannerBtnDisabled]}
             disabled={actionBusy}
@@ -620,10 +754,8 @@ export default function OrderChatScreen() {
     if (st === 2 && isSeller && gt !== 3) {
       return (
         <View style={styles.banner}>
-          <Text style={styles.bannerTitle}>{gt === 2 ? '待买方自提 / 待送达' : '待送达'}</Text>
-          <Text style={styles.bannerDesc}>
-            履约完成后请上传至少一张送达凭证照片，再确认；买家将收到「确认收货」提醒。
-          </Text>
+          <Text style={styles.bannerTitle}>{gt === 2 ? '待自提 / 送达' : '待送达'}</Text>
+          <Text style={styles.bannerDesc}>送达后上传至少一张凭证图确认</Text>
           <TouchableOpacity
             style={[styles.bannerBtn, actionBusy && styles.bannerBtnDisabled]}
             disabled={actionBusy}
@@ -631,7 +763,7 @@ export default function OrderChatScreen() {
             {actionBusy ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={styles.bannerBtnText}>上传凭证并确认已送达</Text>
+              <Text style={styles.bannerBtnText}>上传凭证并确认送达</Text>
             )}
           </TouchableOpacity>
         </View>
@@ -640,9 +772,9 @@ export default function OrderChatScreen() {
     if (st === 2 && isBuyer) {
       return (
         <View style={[styles.banner, styles.bannerMuted]}>
-          <Text style={styles.bannerTitle}>履约中</Text>
+          <Text style={styles.bannerTitle}>进行中</Text>
           <Text style={styles.bannerDesc}>
-            {gt === 2 ? '请按约定自提或等待卖家送达。' : '卖家正在处理发货/配送。'}
+            {gt === 2 ? '请按约定自提或等卖家送达' : '卖家正在发货'}
           </Text>
         </View>
       );
@@ -651,7 +783,7 @@ export default function OrderChatScreen() {
       return (
         <View style={styles.banner}>
           <Text style={styles.bannerTitle}>待确认收货</Text>
-          <Text style={styles.bannerDesc}>收到商品无误后请确认，完成后将扣减库存并结束交易。</Text>
+          <Text style={styles.bannerDesc}>收到商品无误后点确认</Text>
           <TouchableOpacity
             style={[styles.bannerBtn, actionBusy && styles.bannerBtnDisabled]}
             disabled={actionBusy}
@@ -668,8 +800,8 @@ export default function OrderChatScreen() {
     if (st === 3 && isSeller) {
       return (
         <View style={[styles.banner, styles.bannerMuted]}>
-          <Text style={styles.bannerTitle}>待买方收货</Text>
-          <Text style={styles.bannerDesc}>等待买家确认收货</Text>
+          <Text style={styles.bannerTitle}>待买家收货</Text>
+          <Text style={styles.bannerDesc}>等买家确认收货</Text>
         </View>
       );
     }
@@ -686,9 +818,10 @@ export default function OrderChatScreen() {
       );
     }
     const mine = myId != null && item.sender_id === myId;
+    const mineBubbleStyle = isHelp ? styles.bubbleMineHelp : styles.bubbleMine;
     return (
       <View style={[styles.msgRow, mine ? styles.rowMine : styles.rowOther]}>
-        <View style={[styles.bubble, mine ? styles.bubbleMine : styles.bubbleOther]}>
+        <View style={[styles.bubble, mine ? mineBubbleStyle : styles.bubbleOther]}>
           {mt === 2 && item.image_url ? (
             <TouchableOpacity
               activeOpacity={0.9}
@@ -714,9 +847,11 @@ export default function OrderChatScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}>
         {peerRole ? (
-          <View style={styles.roleBar}>
-            <Text style={styles.roleBarText}>
-              对方是{peerRole === 'seller' ? '卖家' : '买家'}
+          <View style={[styles.roleBar, isHelp && styles.roleBarHelp]}>
+            <Text style={[styles.roleBarText, isHelp && styles.roleBarTextHelp]}>
+              {isHelp
+                ? `对方是${peerRole === 'seller' ? '发布者' : '接单者'}`
+                : `对方是${peerRole === 'seller' ? '卖家' : '买家'}`}
             </Text>
           </View>
         ) : null}
@@ -730,9 +865,13 @@ export default function OrderChatScreen() {
           contentContainerStyle={[styles.list, list.length === 0 && styles.listEmpty]}
           ListEmptyComponent={
             <Text style={styles.listEmptyText}>
-              {awaitBuyerLocation
-                ? '可与卖家沟通；付款请点上方「确认付款」提交地址与凭证'
-                : '暂无消息'}
+              {isHelp
+                ? isSeller
+                  ? '先和接单者聊聊需求，完成后点上方付酬'
+                  : '先和发布者聊聊进度，完成后等对方付酬'
+                : awaitBuyerLocation
+                  ? '付款请点上方「确认付款」'
+                  : '暂无消息'}
             </Text>
           }
           onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
@@ -740,7 +879,7 @@ export default function OrderChatScreen() {
         <View style={styles.inputBar}>
           <TextInput
             style={styles.input}
-            placeholder={awaitBuyerLocation ? '输入消息（可与卖家沟通，付款请点上方）…' : '输入消息…'}
+            placeholder="输入消息…"
             placeholderTextColor={colors.textMuted}
             value={text}
             onChangeText={setText}
@@ -775,12 +914,12 @@ export default function OrderChatScreen() {
         proposalOnly={checkoutMode === 'proposal'}
         paymentProofRequired={checkoutMode === 'checkout'}
         headerTitle={
-          checkoutMode === 'proposal' ? '选择新收货地址' : '选择收货地址与付款凭证'
+          checkoutMode === 'proposal' ? '修改收货地址' : '确认付款'
         }
         hint={
           checkoutMode === 'proposal'
-            ? '提交后卖方将收到确认横幅；确认后更新收货地并重新计算距离。'
-            : '将写入收货地址并更新距离；请上传付款截图，提交后向卖家发送付款说明与凭证图。'
+            ? '提交后等卖家确认'
+            : '选收货地址，上传付款截图'
         }
         submitLabel={checkoutMode === 'proposal' ? '提交申请' : '提交'}
         onConfirm={(locId, proof) => {
@@ -805,7 +944,7 @@ export default function OrderChatScreen() {
               <Ionicons name="image-outline" size={22} color={colors.primary} />
               <Text style={styles.attachRowText}>发送图片</Text>
             </TouchableOpacity>
-            {isBuyer && (st === 1 || st === 2) ? (
+            {!isHelp && isBuyer && (st === 1 || st === 2) ? (
               <TouchableOpacity
                 style={styles.attachRow}
                 onPress={() => {
@@ -816,7 +955,7 @@ export default function OrderChatScreen() {
                 <Text style={styles.attachRowText}>修改收货地址</Text>
               </TouchableOpacity>
             ) : null}
-            {isSeller && (st === ORDER_STATUS_AWAIT_BUYER_LOCATION || st === 1 || st === 2) ? (
+            {!isHelp && isSeller && (st === ORDER_STATUS_AWAIT_BUYER_LOCATION || st === 1 || st === 2) ? (
               <TouchableOpacity
                 style={styles.attachRow}
                 onPress={() => {
@@ -842,11 +981,19 @@ export default function OrderChatScreen() {
         onRequestClose={() => setImagePreviewUri(null)}
       />
 
+      <PaymentQrModal
+        visible={qrModalVisible && !isHelp}
+        qrUrl={order?.good?.payment_qr_url ?? null}
+        payeeName={goodTitle ? `商品《${goodTitle}》卖家` : '卖家'}
+        onPickProof={() => openAddressModal('checkout')}
+        onClose={() => setQrModalVisible(false)}
+      />
+
       <Modal transparent visible={sellerLocOpen} animationType="slide" onRequestClose={() => setSellerLocOpen(false)}>
         <View style={styles.sellerLocOverlay}>
           <View style={styles.sellerLocCard}>
             <Text style={styles.sellerLocTitle}>修改发货地址</Text>
-            <Text style={styles.sellerLocHint}>保存后将按新发货地与买方收货地重新计算距离（送货上门/自提）。</Text>
+            <Text style={styles.sellerLocHint}>保存后重新计算到买家的距离</Text>
             <TextInput
               style={styles.sellerLocInput}
               placeholder="发货/自提点地址"
@@ -884,6 +1031,8 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
   },
   roleBarText: { fontSize: 12, color: colors.textMuted, textAlign: 'center' },
+  roleBarHelp: { backgroundColor: '#FFF7ED' },
+  roleBarTextHelp: { color: '#B45309', fontWeight: '600' },
   banner: {
     paddingHorizontal: space.md,
     paddingVertical: space.sm,
@@ -895,6 +1044,15 @@ const styles = StyleSheet.create({
   bannerPending: {
     backgroundColor: '#FFF7ED',
     borderBottomColor: '#FDBA74',
+  },
+  // 有偿求助整体用橙色系，和二手商品的青绿系拉开区分
+  bannerHelp: {
+    backgroundColor: '#FFF7ED',
+    borderBottomColor: '#FDBA74',
+  },
+  bannerHelpMuted: {
+    backgroundColor: '#FFFBEB',
+    borderBottomColor: '#FDE68A',
   },
   bannerRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 10, alignItems: 'center' },
   bannerBtnSm: {
@@ -991,6 +1149,20 @@ const styles = StyleSheet.create({
   },
   bannerBtnDisabled: { opacity: 0.6 },
   bannerBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  bannerBtnRow: { flexDirection: 'row', gap: 10, alignItems: 'center', marginTop: 10 },
+  bannerBtnGrow: { flex: 1, marginTop: 0, alignSelf: 'auto', alignItems: 'center' },
+  bannerQrBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    backgroundColor: colors.surface,
+  },
+  bannerQrText: { fontSize: 14, fontWeight: '700', color: colors.primary },
   list: { padding: space.md, paddingBottom: 12, flexGrow: 1 },
   listEmpty: { flexGrow: 1, justifyContent: 'center', minHeight: 120 },
   listEmptyText: {
@@ -1010,6 +1182,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   bubbleMine: { backgroundColor: colors.primary },
+  bubbleMineHelp: { backgroundColor: '#F97316' },
   bubbleOther: { backgroundColor: '#ECEFF2' },
   msgText: { fontSize: 16, color: colors.text, lineHeight: 22 },
   msgTextMine: { color: '#fff' },

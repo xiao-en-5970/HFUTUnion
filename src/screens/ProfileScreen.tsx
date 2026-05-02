@@ -19,6 +19,8 @@ import { readCachedUserInfo, writeCachedUserInfo, clearCachedUserInfo } from '..
 import { API_BASE } from '../config';
 import Screen from '../components/Screen';
 import { colors, radius, space } from '../theme/colors';
+import { useMessagesUnread } from '../context/MessagesUnreadContext';
+import { useNotifSettings } from '../utils/notifSettings';
 
 const defaultAvatar = require('../assets/default-avatar.png');
 const defaultBg = require('../assets/default-bg.jpg');
@@ -27,6 +29,7 @@ const menuAll = [
   { key: 'edit', label: '编辑资料', icon: 'person-outline', nav: 'EditProfile' as const },
   { key: 'school', label: '学籍认证', icon: 'school-outline', nav: 'SchoolBind' as const },
   { key: 'addr', label: '收货地址', icon: 'location-outline', nav: 'AddressList' as const },
+  { key: 'settings', label: '设置', icon: 'settings-outline', nav: 'Settings' as const },
 ] as const;
 
 export default function ProfileScreen() {
@@ -36,6 +39,8 @@ export default function ProfileScreen() {
   const [uploading, setUploading] = useState(false);
   const [previewVisible, setPreviewVisible] = useState(false);
   const [previewType, setPreviewType] = useState<'avatar' | 'background'>('avatar');
+  const { total: msgUnread } = useMessagesUnread();
+  const { showBadgeCount } = useNotifSettings();
 
   const loadUserInfo = useCallback(async () => {
     let cached: UserInfo | null = null;
@@ -191,6 +196,29 @@ export default function ProfileScreen() {
 
         <TouchableOpacity
           style={styles.orderEntry}
+          activeOpacity={0.85}
+          onPress={() => navigation.navigate('Messages')}>
+          <View style={styles.orderEntryRow}>
+            <View style={styles.orderIconWrap}>
+              <Ionicons name="chatbubble-ellipses-outline" size={24} color={colors.primary} />
+            </View>
+            <View style={styles.orderEntryText}>
+              <Text style={styles.orderEntryTitle}>消息</Text>
+              <Text style={styles.orderEntrySub}>互动 · 订单沟通</Text>
+            </View>
+            {msgUnread > 0 ? (
+              <View style={styles.msgBadge}>
+                <Text style={styles.msgBadgeText}>
+                  {showBadgeCount ? (msgUnread > 99 ? '99+' : msgUnread) : ' '}
+                </Text>
+              </View>
+            ) : null}
+            <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
+          </View>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.orderEntry, styles.orderEntryFollow]}
           activeOpacity={0.85}
           onPress={() => navigation.navigate('MyOrders')}>
           <View style={styles.orderEntryRow}>
@@ -366,6 +394,17 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   menuLabel: { flex: 1, fontSize: 16, color: colors.text },
+  msgBadge: {
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 5,
+    borderRadius: 9,
+    backgroundColor: '#FF3B30',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 6,
+  },
+  msgBadgeText: { color: '#fff', fontSize: 11, fontWeight: '700' },
   header: { position: 'absolute', top: 50, right: 20, zIndex: 10 },
   changeText: { color: '#fff', fontSize: 16 },
 });

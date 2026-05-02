@@ -39,6 +39,7 @@ import {
   hasMorePages,
 } from '../utils/pagination';
 import { markViewed, useViewedSet } from '../utils/viewedTracker';
+import { isDeadlineExpired, renderDeadlineBadge } from '../utils/deadline';
 
 function goodsCacheKey(keyword: string, sort: GoodsListSort) {
   const k = keyword.trim() || '__all__';
@@ -75,7 +76,8 @@ export default function GoodListScreen() {
   const [gpsPicking, setGpsPicking] = useState(false);
   const [keyword, setKeyword] = useState('');
   const keywordRef = useRef('');
-  const [goodsSort, setGoodsSort] = useState<GoodsListSort>('newest');
+  // 默认进入即个性化推荐；顶部排序 chip 可切到「最新 / 最近更新」
+  const [goodsSort, setGoodsSort] = useState<GoodsListSort>('recommend');
   /** 推荐模式下后端返回的 refresh_token，翻页复用保持顺序稳定；下拉刷新清空以触发新一条推荐流 */
   const goodsTokenRef = useRef<string | undefined>(undefined);
   /** 已点击过的商品 ID 集合：点击打标，列表再次渲染变灰字 */
@@ -123,6 +125,7 @@ export default function GoodListScreen() {
         listGoods(1, PAGE_SIZE, {
           q: q || undefined,
           sort: goodsSort,
+          category: 1, // 市集仅展示二手买卖；有偿求助已迁到「求助」tab
         }),
         fetchUserLocations().catch(() => [] as UserLocation[]),
       ]);
@@ -163,6 +166,7 @@ export default function GoodListScreen() {
       const res = await listGoods(nextPage, PAGE_SIZE, {
         q: qTrim || undefined,
         sort: goodsSort,
+        category: 1,
         refreshToken: goodsSort === 'recommend' ? goodsTokenRef.current : undefined,
       });
       if (res.refresh_token) {
@@ -336,6 +340,8 @@ export default function GoodListScreen() {
             const hasCover = Boolean(item.images?.[0]);
             // 本地 viewedTracker ∪ 后端 is_viewed（跨设备），任一命中即灰字
             const viewed = viewedGoods.has(item.id) || !!item.is_viewed;
+            const deadlineText = renderDeadlineBadge(item);
+            const expired = isDeadlineExpired(item);
 
             return (
               <TouchableOpacity
@@ -348,13 +354,26 @@ export default function GoodListScreen() {
                 {hasCover && item.images?.[0] ? (
                   <>
                     <Image source={{ uri: item.images[0] }} style={styles.cover} />
-                    {item.goods_type_label ? (
-                      <View style={styles.typeTag}>
-                        <Text style={styles.typeTagText} numberOfLines={1}>
-                          {item.goods_type_label}
-                        </Text>
-                      </View>
-                    ) : null}
+                    <View style={styles.tagStack}>
+                      {item.goods_type_label ? (
+                        <View style={styles.typeTag}>
+                          <Text style={styles.typeTagText} numberOfLines={1}>
+                            {item.goods_type_label}
+                          </Text>
+                        </View>
+                      ) : null}
+                      {deadlineText ? (
+                        <View
+                          style={[
+                            styles.typeTag,
+                            expired ? styles.typeTagExpired : styles.typeTagDeadline,
+                          ]}>
+                          <Text style={styles.typeTagText} numberOfLines={1}>
+                            {deadlineText}
+                          </Text>
+                        </View>
+                      ) : null}
+                    </View>
                     <Text
                       numberOfLines={2}
                       style={[styles.title, viewed && styles.viewedText]}>
@@ -367,13 +386,26 @@ export default function GoodListScreen() {
                       <Text style={styles.noCoverBadgeText}>无图</Text>
                     </View>
                     <View style={styles.noCoverHeadMain}>
-                      {item.goods_type_label ? (
-                        <View style={styles.typeTagInline}>
-                          <Text style={styles.typeTagInlineText} numberOfLines={1}>
-                            {item.goods_type_label}
-                          </Text>
-                        </View>
-                      ) : null}
+                      <View style={styles.inlineTagRow}>
+                        {item.goods_type_label ? (
+                          <View style={styles.typeTagInline}>
+                            <Text style={styles.typeTagInlineText} numberOfLines={1}>
+                              {item.goods_type_label}
+                            </Text>
+                          </View>
+                        ) : null}
+                        {deadlineText ? (
+                          <View
+                            style={[
+                              styles.typeTagInline,
+                              expired ? styles.typeTagInlineExpired : styles.typeTagInlineDeadline,
+                            ]}>
+                            <Text style={styles.typeTagInlineText} numberOfLines={1}>
+                              {deadlineText}
+                            </Text>
+                          </View>
+                        ) : null}
+                      </View>
                       <Text
                         numberOfLines={2}
                         style={[styles.titleNoCover, viewed && styles.viewedText]}>
@@ -602,17 +634,30 @@ const styles = StyleSheet.create({
     maxWidth: '100%',
   },
   typeTagInlineText: { fontSize: 10, color: colors.textSecondary, fontWeight: '600' },
-  typeTag: {
+  tagStack: {
     position: 'absolute',
     top: 8,
     left: 8,
-    maxWidth: '70%',
+    right: 8,
+    flexDirection: 'row',
+    gap: 6,
+    flexWrap: 'wrap',
+  },
+  typeTag: {
+    maxWidth: '100%',
     backgroundColor: 'rgba(0,0,0,0.55)',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
   },
   typeTagText: { fontSize: 11, color: '#fff', fontWeight: '600' },
+  typeTagHelp: { backgroundColor: '#F97316' },
+  typeTagDeadline: { backgroundColor: '#F59E0B' },
+  typeTagExpired: { backgroundColor: '#6B7280' },
+  inlineTagRow: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
+  typeTagInlineHelp: { backgroundColor: '#FFEDD5' },
+  typeTagInlineDeadline: { backgroundColor: '#FEF3C7' },
+  typeTagInlineExpired: { backgroundColor: '#F3F4F6' },
   title: { fontSize: 14, paddingHorizontal: 8, paddingTop: 8, color: colors.text, fontWeight: '500' },
   priceRow: {
     flexDirection: 'row',

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   Image,
   ActivityIndicator,
+  Switch,
 } from 'react-native';
 import { ScrollView } from 'react-native-gesture-handler';
 import DraggableFlatList, {
@@ -16,7 +17,13 @@ import DraggableFlatList, {
 import { useFocusEffect } from '@react-navigation/native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import Ionicons from 'react-native-vector-icons/Ionicons';
-import { createGood, getGood, publishGood, updateGood } from '../api/goods';
+import {
+  createGood,
+  getGood,
+  publishGood,
+  updateGood,
+  GOODS_CATEGORY,
+} from '../api/goods';
 import { uploadOssUserFile } from '../api/oss';
 import { fetchUserInfo, fetchUserLocations, type UserLocation } from '../api/user';
 import Screen from '../components/Screen';
@@ -46,8 +53,46 @@ function isRemoteUrl(uri: string) {
   return /^https?:\/\//i.test(uri);
 }
 
+function pad2(n: number) {
+  return n < 10 ? `0${n}` : `${n}`;
+}
+
+/** 把 deadline 格式成本地可读时间："2026-05-02 18:30" */
+function formatDeadline(d: Date): string {
+  return (
+    `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ` +
+    `${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+  );
+}
+
+type DurationUnit = 'day' | 'hour';
+
+const MS_HOUR = 60 * 60 * 1000;
+const MS_DAY = 24 * MS_HOUR;
+
+/** 时长上限：30 天 / 720 小时。超过意义不大且易误填。 */
+const MAX_DAYS = 30;
+const MAX_HOURS = 720;
+
+function durationToMs(value: number, unit: DurationUnit): number {
+  return unit === 'day' ? value * MS_DAY : value * MS_HOUR;
+}
+
+/** 把剩余毫秒反推成合适的 value+unit：≥ 48h 且能整除 24 用天；否则用小时 */
+function msToDuration(ms: number): { value: number; unit: DurationUnit } {
+  if (ms <= 0) {
+    return { value: 1, unit: 'hour' };
+  }
+  if (ms >= 2 * MS_DAY && ms % MS_DAY === 0) {
+    return { value: Math.round(ms / MS_DAY), unit: 'day' };
+  }
+  return { value: Math.max(1, Math.ceil(ms / MS_HOUR)), unit: 'hour' };
+}
+
 export default function GoodCreateScreen({ navigation, route }: any) {
   const goodId = route.params?.goodId as number | undefined;
+  /** 从「求助」tab 进入时会预置为 2；预置后用户不能再切换类别（避免误发） */
+  const initialCategory = route.params?.initialCategory as 1 | 2 | undefined;
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
@@ -55,6 +100,24 @@ export default function GoodCreateScreen({ navigation, route }: any) {
   const [stock, setStock] = useState('1');
   const [loading, setLoading] = useState(false);
   const [images, setImages] = useState<Picked[]>([]);
+
+  // 类别：1 二手买卖 / 2 有偿求助
+  const [category, setCategory] = useState<number>(
+    initialCategory === GOODS_CATEGORY.Help ? GOODS_CATEGORY.Help : GOODS_CATEGORY.Normal,
+  );
+  /** 类别固定（从求助入口进 / 或正在编辑已存在的商品）后不允许切换 */
+  const categoryLocked = !!initialCategory || !!goodId;
+  /** 求助无需地址/履约 */
+  const isHelp = category === GOODS_CATEGORY.Help;
+
+  // 收款码：仅二手买卖需要；上传后保存最终 URL
+  const [paymentQr, setPaymentQr] = useState<string | null>(null);
+  const [uploadingQr, setUploadingQr] = useState(false);
+
+  // 定时下架：改为「从现在开始 N 天 / N 小时后自动下架」
+  const [hasDeadline, setHasDeadline] = useState(false);
+  const [durationValue, setDurationValue] = useState<string>('7');
+  const [durationUnit, setDurationUnit] = useState<DurationUnit>('day');
 
   const [locations, setLocations] = useState<UserLocation[]>([]);
   const [locationsLoading, setLocationsLoading] = useState(true);
@@ -67,8 +130,16 @@ export default function GoodCreateScreen({ navigation, route }: any) {
   const [gpsLoading, setGpsLoading] = useState(false);
 
   useLayoutEffect(() => {
-    navigation.setOptions({ title: goodId ? '编辑商品' : '发布闲置' });
-  }, [goodId, navigation]);
+    navigation.setOptions({
+      title: goodId
+        ? isHelp
+          ? '编辑求助'
+          : '编辑商品'
+        : isHelp
+          ? '发布求助'
+          : '发布闲置',
+    });
+  }, [goodId, isHelp, navigation]);
 
   useEffect(() => {
     if (!goodId) {
@@ -90,6 +161,22 @@ export default function GoodCreateScreen({ navigation, route }: any) {
         setContent(g.content || '');
         setPriceYuan(String((g.price ?? 0) / 100));
         setStock(String(g.stock ?? 1));
+        setCategory(
+          g.goods_category === GOODS_CATEGORY.Help
+            ? GOODS_CATEGORY.Help
+            : GOODS_CATEGORY.Normal,
+        );
+        setPaymentQr(g.payment_qr_url ? g.payment_qr_url : null);
+        setHasDeadline(!!g.has_deadline);
+        // 编辑场景：拿剩余毫秒反推成 value+unit，让用户看到「还剩 X 天 / 小时」而不是具体日期
+        if (g.has_deadline && g.deadline) {
+          const d = new Date(g.deadline);
+          if (!Number.isNaN(d.getTime())) {
+            const { value, unit } = msToDuration(d.getTime() - Date.now());
+            setDurationValue(String(value));
+            setDurationUnit(unit);
+          }
+        }
         if (g.images?.length) {
           setImages(
             g.images.map((uri) => ({ key: newImageKey(), uri })),
@@ -185,6 +272,58 @@ export default function GoodCreateScreen({ navigation, route }: any) {
       };
     }, [goodId, useGpsForGood]),
   );
+
+  const pickPaymentQr = async () => {
+    if (category !== GOODS_CATEGORY.Normal) {
+      return;
+    }
+    try {
+      const r = await launchImageLibrary({ mediaType: 'photo', selectionLimit: 1 });
+      if (r.didCancel || !r.assets?.length || !r.assets[0]?.uri) {
+        return;
+      }
+      const a = r.assets[0];
+      setUploadingQr(true);
+      const me = await fetchUserInfo();
+      const uid = me?.id;
+      if (uid == null) {
+        Alert.alert('提示', '请先登录');
+        return;
+      }
+      const url = await uploadOssUserFile(
+        uid,
+        a.uri!,
+        a.type || 'image/jpeg',
+        a.fileName || 'qr.jpg',
+        'goods',
+      );
+      setPaymentQr(url);
+    } catch (e: any) {
+      Alert.alert('上传失败', e?.message || '请稍后重试');
+    } finally {
+      setUploadingQr(false);
+    }
+  };
+
+  /**
+   * 按「现在 + N 天/小时」计算出具体截止 Date。
+   * 解析失败或 ≤ 0 时返回 null，由校验逻辑 / UI 统一处理。
+   */
+  const parsedDuration = useMemo(() => {
+    const n = parseInt(durationValue, 10);
+    if (Number.isNaN(n) || n <= 0) {
+      return { ok: false as const, value: 0, date: null as Date | null };
+    }
+    const cap = durationUnit === 'day' ? MAX_DAYS : MAX_HOURS;
+    if (n > cap) {
+      return { ok: false as const, value: n, date: null as Date | null };
+    }
+    return {
+      ok: true as const,
+      value: n,
+      date: new Date(Date.now() + durationToMs(n, durationUnit)),
+    };
+  }, [durationValue, durationUnit]);
 
   const pickImages = async () => {
     const remain = MAX_IMAGES - images.length;
@@ -304,18 +443,21 @@ export default function GoodCreateScreen({ navigation, route }: any) {
 
     const selected = locations.find((l) => l.id === selectedLocationId);
 
-    if (useGpsForGood) {
-      if (gpsLat == null || gpsLng == null) {
-        Alert.alert('提示', '请先使用「当前定位」，或从地址簿选择一条地址');
-        return;
-      }
-    } else {
-      if (!selected) {
-        Alert.alert('提示', '请从地址簿选择商品交易地址，或使用「当前定位」', [
-          { text: '去添加地址', onPress: () => navigation.navigate('AddressList') },
-          { text: '取消', style: 'cancel' },
-        ]);
-        return;
+    // 求助：在线协作，不需要交易地址；只有二手买卖才强校验地址
+    if (!isHelp) {
+      if (useGpsForGood) {
+        if (gpsLat == null || gpsLng == null) {
+          Alert.alert('提示', '请先使用「当前定位」，或从地址簿选择一条地址');
+          return;
+        }
+      } else {
+        if (!selected) {
+          Alert.alert('提示', '请从地址簿选择商品交易地址，或使用「当前定位」', [
+            { text: '去添加地址', onPress: () => navigation.navigate('AddressList') },
+            { text: '取消', style: 'cancel' },
+          ]);
+          return;
+        }
       }
     }
 
@@ -344,12 +486,41 @@ export default function GoodCreateScreen({ navigation, route }: any) {
         }
       }
       const cents = Math.round(py * 100);
-      const stockNum = Math.max(0, parseInt(stock, 10) || 0);
+      // 有偿求助不暴露库存字段，固定为 1：求助属于一次性任务，接单并完成后即下架
+      const stockNum = isHelp ? 1 : Math.max(0, parseInt(stock, 10) || 0);
 
+      // deadline 校验：现在重新计算一次，避免用户停留太久导致时间漂移
+      let deadlineISO: string | null = null;
+      if (hasDeadline) {
+        const n = parseInt(durationValue, 10);
+        if (Number.isNaN(n) || n <= 0) {
+          Alert.alert('提示', '请填写一个大于 0 的时长，单位选天或小时');
+          return;
+        }
+        const cap = durationUnit === 'day' ? MAX_DAYS : MAX_HOURS;
+        if (n > cap) {
+          Alert.alert(
+            '提示',
+            durationUnit === 'day'
+              ? `最长 ${MAX_DAYS} 天`
+              : `最长 ${MAX_HOURS} 小时`,
+          );
+          return;
+        }
+        deadlineISO = new Date(Date.now() + durationToMs(n, durationUnit)).toISOString();
+      }
+
+      const effectiveQr = isHelp ? '' : paymentQr ?? '';
+
+      // 求助：goods_type=3（在线）；二手：goods_type=1（送货上门）
       const common = {
         title: title.trim(),
         content: content.trim(),
-        goods_type: 1,
+        goods_type: isHelp ? 3 : 1,
+        goods_category: category,
+        payment_qr_url: effectiveQr,
+        has_deadline: hasDeadline && !!deadlineISO,
+        deadline: deadlineISO,
         price: cents,
         marked_price: 0,
         stock: stockNum,
@@ -358,21 +529,23 @@ export default function GoodCreateScreen({ navigation, route }: any) {
       if (goodId) {
         await updateGood(
           goodId,
-          useGpsForGood
-            ? {
-                ...common,
-                images: urls,
-                goods_addr: gpsAddrLabel,
-                goods_lat: gpsLat,
-                goods_lng: gpsLng,
-              }
-            : {
-                ...common,
-                images: urls,
-                goods_addr: selected!.addr,
-                goods_lat: selected!.lat ?? null,
-                goods_lng: selected!.lng ?? null,
-              },
+          isHelp
+            ? { ...common, images: urls, goods_addr: '', goods_lat: null, goods_lng: null }
+            : useGpsForGood
+              ? {
+                  ...common,
+                  images: urls,
+                  goods_addr: gpsAddrLabel,
+                  goods_lat: gpsLat,
+                  goods_lng: gpsLng,
+                }
+              : {
+                  ...common,
+                  images: urls,
+                  goods_addr: selected!.addr,
+                  goods_lat: selected!.lat ?? null,
+                  goods_lng: selected!.lng ?? null,
+                },
         );
         Alert.alert('已保存', '', [
           {
@@ -384,22 +557,30 @@ export default function GoodCreateScreen({ navigation, route }: any) {
       }
 
       const { id } = await createGood(
-        useGpsForGood
+        isHelp
           ? {
               ...common,
               ...(urls.length > 0 ? { images: urls } : {}),
-              goods_addr: gpsAddrLabel,
-              goods_lat: gpsLat,
-              goods_lng: gpsLng,
+              goods_addr: '',
+              goods_lat: null,
+              goods_lng: null,
             }
-          : {
-              ...common,
-              ...(urls.length > 0 ? { images: urls } : {}),
-              user_location_id: selected!.id,
-              goods_addr: selected!.addr,
-              goods_lat: selected!.lat ?? null,
-              goods_lng: selected!.lng ?? null,
-            },
+          : useGpsForGood
+            ? {
+                ...common,
+                ...(urls.length > 0 ? { images: urls } : {}),
+                goods_addr: gpsAddrLabel,
+                goods_lat: gpsLat,
+                goods_lng: gpsLng,
+              }
+            : {
+                ...common,
+                ...(urls.length > 0 ? { images: urls } : {}),
+                user_location_id: selected!.id,
+                goods_addr: selected!.addr,
+                goods_lat: selected!.lat ?? null,
+                goods_lng: selected!.lng ?? null,
+              },
       );
       await publishGood(id);
       Alert.alert('已上架', '', [
@@ -420,10 +601,53 @@ export default function GoodCreateScreen({ navigation, route }: any) {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
         nestedScrollEnabled>
-        <Text style={styles.title}>{goodId ? '编辑商品' : '发布闲置'}</Text>
-        <Text style={styles.hint}>
-          价格单位：元；上架后出现在市集。商品图可不传（0 张即可发布），有图更易成交。
+        <Text style={styles.title}>
+          {goodId
+            ? isHelp
+              ? '编辑求助'
+              : '编辑商品'
+            : isHelp
+              ? '发布求助'
+              : '发布闲置'}
         </Text>
+        <Text style={styles.hint}>
+          {isHelp
+            ? '填你愿意出的酬劳，完成后由接单者向你收款'
+            : '单位：元。图片可不传，有图更易成交'}
+        </Text>
+
+        {!categoryLocked ? (
+          <>
+            <Text style={styles.label}>类别</Text>
+            <View style={styles.segment}>
+              {[
+                { k: GOODS_CATEGORY.Normal, label: '二手买卖', hint: '我是卖家，需要收款' },
+                { k: GOODS_CATEGORY.Help, label: '有偿求助', hint: '我出钱，悬赏他人完成' },
+              ].map((opt) => {
+                const on = category === opt.k;
+                return (
+                  <TouchableOpacity
+                    key={opt.k}
+                    style={[styles.segmentBtn, on && styles.segmentBtnOn]}
+                    activeOpacity={0.85}
+                    onPress={() => {
+                      setCategory(opt.k);
+                      if (opt.k === GOODS_CATEGORY.Help) {
+                        setPaymentQr(null);
+                      }
+                    }}>
+                    <Text style={[styles.segmentText, on && styles.segmentTextOn]}>
+                      {opt.label}
+                    </Text>
+                    <Text style={[styles.segmentHint, on && styles.segmentHintOn]}>
+                      {opt.hint}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </>
+        ) : null}
 
         <Text style={styles.label}>商品图片（可不传）</Text>
         <Text style={styles.imgDragHint}>长按拖动可调整顺序</Text>
@@ -450,6 +674,8 @@ export default function GoodCreateScreen({ navigation, route }: any) {
           }
         />
 
+        {!isHelp ? (
+          <>
         <Text style={styles.label}>商品交易地址</Text>
         <Text style={styles.addrHint}>
           从地址簿选已保存的地址（有位置信息时，市集能显示距离），或使用「当前定位」。没有地址时请先到「收货地址」里添加。
@@ -538,6 +764,124 @@ export default function GoodCreateScreen({ navigation, route }: any) {
             </Text>
           </View>
         ) : null}
+          </>
+        ) : null}
+
+        {category === GOODS_CATEGORY.Normal ? (
+          <>
+            <Text style={styles.label}>收款码（可选）</Text>
+            <Text style={styles.addrHint}>
+              上传后，买家点击「付款」会看到这张图并可保存到相册。
+              留空时买家会看到「请在聊天中联系卖家」。
+            </Text>
+            <View style={styles.qrBlock}>
+              {paymentQr ? (
+                <View style={styles.qrPreviewWrap}>
+                  <Image source={{ uri: paymentQr }} style={styles.qrPreview} />
+                  <View style={styles.qrActions}>
+                    <TouchableOpacity
+                      style={styles.qrActionBtn}
+                      activeOpacity={0.85}
+                      onPress={() => {
+                        pickPaymentQr().catch(() => {});
+                      }}>
+                      <Ionicons name="swap-horizontal" size={16} color={colors.primary} />
+                      <Text style={styles.qrActionText}>换一张</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.qrActionBtn, styles.qrActionDanger]}
+                      activeOpacity={0.85}
+                      onPress={() => setPaymentQr(null)}>
+                      <Ionicons name="trash-outline" size={16} color={colors.danger} />
+                      <Text style={[styles.qrActionText, styles.qrActionDangerText]}>
+                        移除
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={styles.qrUploadBtn}
+                  activeOpacity={0.85}
+                  disabled={uploadingQr}
+                  onPress={() => {
+                    pickPaymentQr().catch(() => {});
+                  }}>
+                  {uploadingQr ? (
+                    <ActivityIndicator color={colors.primary} />
+                  ) : (
+                    <>
+                      <Ionicons name="qr-code-outline" size={24} color={colors.primary} />
+                      <Text style={styles.qrUploadText}>上传收款码</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              )}
+            </View>
+          </>
+        ) : null}
+
+        <Text style={styles.label}>截止时间</Text>
+        <View style={styles.deadlineRow}>
+          <View style={styles.deadlineText}>
+            <Text style={styles.deadlineLabel}>
+              {hasDeadline ? '到期自动下架' : '无截止时间'}
+            </Text>
+            <Text style={styles.deadlineHint}>
+              {hasDeadline
+                ? '从现在起计时，到期后自动下架'
+                : '打开后按时长设置，单位天或小时'}
+            </Text>
+          </View>
+          <Switch
+            value={hasDeadline}
+            onValueChange={setHasDeadline}
+            trackColor={{ true: colors.primaryLight, false: '#E5E7EB' }}
+            thumbColor={hasDeadline ? colors.primary : '#F4F4F5'}
+          />
+        </View>
+        {hasDeadline ? (
+          <>
+            <View style={styles.durationRow}>
+              <TextInput
+                style={styles.durationInput}
+                keyboardType="number-pad"
+                placeholder="7"
+                placeholderTextColor={colors.textMuted}
+                value={durationValue}
+                onChangeText={(t) => setDurationValue(t.replace(/[^0-9]/g, ''))}
+                maxLength={3}
+              />
+              <View style={styles.unitSegment}>
+                {(['day', 'hour'] as const).map((u) => {
+                  const on = durationUnit === u;
+                  return (
+                    <TouchableOpacity
+                      key={u}
+                      style={[styles.unitBtn, on && styles.unitBtnOn]}
+                      activeOpacity={0.85}
+                      onPress={() => setDurationUnit(u)}>
+                      <Text style={[styles.unitText, on && styles.unitTextOn]}>
+                        {u === 'day' ? '天' : '小时'}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+            {parsedDuration.ok && parsedDuration.date ? (
+              <Text style={styles.deadlinePreview}>
+                预计到期：{formatDeadline(parsedDuration.date)}
+              </Text>
+            ) : (
+              <Text style={styles.deadlineError}>
+                {durationUnit === 'day'
+                  ? `请输入 1 ~ ${MAX_DAYS} 天`
+                  : `请输入 1 ~ ${MAX_HOURS} 小时`}
+              </Text>
+            )}
+          </>
+        ) : null}
 
         <TextInput
           style={styles.input}
@@ -557,20 +901,22 @@ export default function GoodCreateScreen({ navigation, route }: any) {
         />
         <TextInput
           style={styles.input}
-          placeholder="价格（元）"
+          placeholder={isHelp ? '酬劳（元）' : '价格（元）'}
           placeholderTextColor={colors.textMuted}
           value={priceYuan}
           onChangeText={setPriceYuan}
           keyboardType="decimal-pad"
         />
-        <TextInput
-          style={styles.input}
-          placeholder="库存"
-          placeholderTextColor={colors.textMuted}
-          value={stock}
-          onChangeText={setStock}
-          keyboardType="number-pad"
-        />
+        {!isHelp ? (
+          <TextInput
+            style={styles.input}
+            placeholder="库存"
+            placeholderTextColor={colors.textMuted}
+            value={stock}
+            onChangeText={setStock}
+            keyboardType="number-pad"
+          />
+        ) : null}
         <PrimaryButton
           title={goodId ? '保存修改' : '发布上架'}
           onPress={submit}
@@ -722,4 +1068,125 @@ const styles = StyleSheet.create({
     marginBottom: space.md,
   },
   area: { minHeight: 120, maxHeight: 280 },
+  segment: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: space.md,
+  },
+  segmentBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surface,
+  },
+  segmentBtnOn: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryLight,
+  },
+  segmentText: { fontSize: 15, fontWeight: '700', color: colors.textSecondary },
+  segmentTextOn: { color: colors.primary },
+  segmentHint: { marginTop: 4, fontSize: 11, color: colors.textMuted, lineHeight: 16 },
+  segmentHintOn: { color: colors.primary },
+  helpTip: {
+    marginTop: -6,
+    marginBottom: space.md,
+    fontSize: 12,
+    color: colors.textMuted,
+    lineHeight: 18,
+    padding: 10,
+    backgroundColor: colors.bg,
+    borderRadius: radius.sm,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.primary,
+  },
+  qrBlock: { marginBottom: space.md },
+  qrUploadBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 18,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: colors.border,
+    backgroundColor: colors.bg,
+  },
+  qrUploadText: { fontSize: 14, color: colors.primary, fontWeight: '600' },
+  qrPreviewWrap: { flexDirection: 'row', gap: 12, alignItems: 'center' },
+  qrPreview: {
+    width: 120,
+    height: 120,
+    borderRadius: radius.sm,
+    backgroundColor: colors.border,
+  },
+  qrActions: { gap: 8, flex: 1 },
+  qrActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.primary,
+  },
+  qrActionDanger: { borderColor: colors.danger },
+  qrActionText: { fontSize: 13, fontWeight: '600', color: colors.primary },
+  qrActionDangerText: { color: colors.danger },
+  deadlineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 6,
+    marginBottom: space.sm,
+  },
+  deadlineText: { flex: 1, minWidth: 0 },
+  deadlineLabel: { fontSize: 15, fontWeight: '600', color: colors.text },
+  deadlineHint: { marginTop: 4, fontSize: 12, color: colors.textMuted, lineHeight: 18 },
+  durationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 6,
+  },
+  durationInput: {
+    width: 96,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.text,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surface,
+    textAlign: 'center',
+  },
+  unitSegment: {
+    flexDirection: 'row',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    overflow: 'hidden',
+    backgroundColor: colors.surface,
+  },
+  unitBtn: { paddingVertical: 10, paddingHorizontal: 16 },
+  unitBtnOn: { backgroundColor: colors.primaryLight },
+  unitText: { fontSize: 14, color: colors.textSecondary, fontWeight: '500' },
+  unitTextOn: { color: colors.primary, fontWeight: '700' },
+  deadlinePreview: {
+    fontSize: 12,
+    color: colors.textMuted,
+    marginBottom: space.md,
+  },
+  deadlineError: {
+    fontSize: 12,
+    color: colors.danger,
+    marginBottom: space.md,
+  },
 });

@@ -37,6 +37,8 @@ export type ChatConversation = {
   orderStatus?: number;
   /** 商品 goods_type 1 送货 2 自提 3 在线 */
   goodsType?: number;
+  /** 商品 goods_category 1 二手买卖 2 有偿求助 */
+  goodsCategory?: number;
   createdAt?: string;
   /** 对方发来未读条数（由未读汇总合并） */
   unreadCount?: number;
@@ -82,6 +84,7 @@ export async function fetchChatConversations(): Promise<ChatConversation[]> {
       orderStatusLabel: o.order_status_label,
       orderStatus: o.order_status,
       goodsType: o.good?.goods_type,
+      goodsCategory: o.good?.goods_category,
       createdAt: o.created_at,
     });
   }
@@ -107,6 +110,7 @@ export async function fetchChatConversations(): Promise<ChatConversation[]> {
       orderStatusLabel: o.order_status_label,
       orderStatus: o.order_status,
       goodsType: o.good?.goods_type,
+      goodsCategory: o.good?.goods_category,
       createdAt: o.created_at,
     });
   }

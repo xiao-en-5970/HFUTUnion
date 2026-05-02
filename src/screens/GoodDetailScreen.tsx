@@ -27,6 +27,7 @@ import { fetchUserInfo } from '../api/user';
 import { readCachedUserInfo } from '../utils/userCache';
 import { resolveCurrentUserId } from '../utils/userId';
 import { markViewed } from '../utils/viewedTracker';
+import { isDeadlineExpired, renderDeadlineBadge } from '../utils/deadline';
 
 const EXT_GOODS = 4;
 
@@ -258,7 +259,7 @@ export default function GoodDetailScreen({ route }: any) {
       Number.isFinite(sid) &&
       sid === myUserId
     ) {
-      Alert.alert('提示', '不能购买自己发布的商品');
+      Alert.alert('提示', g.goods_category === 2 ? '不能接自己发布的求助' : '不能购买自己发布的商品');
       return;
     }
     try {
@@ -287,8 +288,9 @@ export default function GoodDetailScreen({ route }: any) {
     );
   }
 
+  const isHelp = g.goods_category === 2;
   const marked = g.marked_price as number | undefined;
-  const hasDisc = marked != null && marked > g.price;
+  const hasDisc = !isHelp && marked != null && marked > g.price;
   const pct = hasDisc ? discountPercent(marked, g.price) : 0;
 
   const galleryUrls = ((g.images as string[] | undefined)?.filter(Boolean) ?? []) as string[];
@@ -374,31 +376,54 @@ export default function GoodDetailScreen({ route }: any) {
           </View>
           <Text style={styles.title}>{g.title}</Text>
           <View style={styles.chips}>
-            <View style={styles.chip}>
-              <Text style={styles.chipText}>{g.goods_type_label || '商品'}</Text>
-            </View>
-            <Text style={styles.meta}>库存 {g.stock}</Text>
-          </View>
-          <View style={styles.addrRow}>
-            <Text style={styles.addr}>
-              {g.goods_addr || g.pickup_addr || '见详情'}
-            </Text>
-            {g.goods_lat != null && g.goods_lng != null ? (
-              <TouchableOpacity
-                style={styles.routeBtn}
-                onPress={() =>
-                  navigation.navigate('MapRoute', {
-                    dest: { lng: Number(g.goods_lng), lat: Number(g.goods_lat) },
-                    destLabel: g.goods_addr || g.pickup_addr || '商品位置',
-                    title: '到商品的路线',
-                  })
-                }
-                activeOpacity={0.85}>
-                <Ionicons name="navigate-outline" size={14} color={colors.primary} />
-                <Text style={styles.routeBtnText}>路线</Text>
-              </TouchableOpacity>
+            {isHelp ? (
+              <View style={[styles.chip, styles.chipHelp]}>
+                <Text style={[styles.chipText, styles.chipHelpText]}>有偿求助</Text>
+              </View>
+            ) : (
+              <View style={styles.chip}>
+                <Text style={styles.chipText}>{g.goods_type_label || '商品'}</Text>
+              </View>
+            )}
+            {renderDeadlineBadge(g) ? (
+              <View
+                style={[
+                  styles.chip,
+                  isDeadlineExpired(g) ? styles.chipExpired : styles.chipDeadline,
+                ]}>
+                <Text
+                  style={[
+                    styles.chipText,
+                    isDeadlineExpired(g) ? styles.chipExpiredText : styles.chipDeadlineText,
+                  ]}>
+                  {renderDeadlineBadge(g)}
+                </Text>
+              </View>
             ) : null}
+            {!isHelp ? <Text style={styles.meta}>库存 {g.stock}</Text> : null}
           </View>
+          {!isHelp ? (
+            <View style={styles.addrRow}>
+              <Text style={styles.addr}>
+                {g.goods_addr || g.pickup_addr || '见详情'}
+              </Text>
+              {g.goods_lat != null && g.goods_lng != null ? (
+                <TouchableOpacity
+                  style={styles.routeBtn}
+                  onPress={() =>
+                    navigation.navigate('MapRoute', {
+                      dest: { lng: Number(g.goods_lng), lat: Number(g.goods_lat) },
+                      destLabel: g.goods_addr || g.pickup_addr || '商品位置',
+                      title: '到商品的路线',
+                    })
+                  }
+                  activeOpacity={0.85}>
+                  <Ionicons name="navigate-outline" size={14} color={colors.primary} />
+                  <Text style={styles.routeBtnText}>路线</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          ) : null}
           {g.view_count != null || g.like_count != null || g.collect_count != null ? (
             <Text style={styles.statsLine}>
               {[
@@ -426,15 +451,20 @@ export default function GoodDetailScreen({ route }: any) {
 
         <Text style={styles.body}>{g.content}</Text>
         <View style={styles.seller}>
-          <Text style={styles.sellerLabel}>卖家</Text>
+          <Text style={styles.sellerLabel}>{isHelp ? '发布者' : '卖家'}</Text>
           <Text style={styles.sellerName}>{g.author?.username || '匿名'}</Text>
         </View>
         {isOwnGood ? (
           <Text style={styles.ownGoodHint}>
-            这是您发布的商品，无法向自己购买；买家可在「我想要」与您沟通。
+            {isHelp ? '这是你发布的求助' : '这是你发布的商品'}
           </Text>
         ) : (
-          <PrimaryButton title="我想要" onPress={goWant} loading={wantBusy} style={styles.buy} />
+          <PrimaryButton
+            title={isHelp ? '我来接' : '我想要'}
+            onPress={goWant}
+            loading={wantBusy}
+            style={styles.buy}
+          />
         )}
       </ScrollView>
 
@@ -487,6 +517,12 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   chipText: { fontSize: 13, fontWeight: '600', color: colors.primary },
+  chipHelp: { backgroundColor: '#FFEDD5' },
+  chipHelpText: { color: '#C2410C' },
+  chipDeadline: { backgroundColor: '#FEF3C7' },
+  chipDeadlineText: { color: '#92400E' },
+  chipExpired: { backgroundColor: '#F3F4F6' },
+  chipExpiredText: { color: colors.textMuted },
   meta: { fontSize: 13, color: colors.textSecondary },
   addr: { fontSize: 14, color: colors.textSecondary, marginTop: 8, lineHeight: 20, flex: 1 },
   addrRow: {

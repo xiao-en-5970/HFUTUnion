@@ -24,10 +24,17 @@ export type OrderRow = {
     price: number;
     goods_type?: number;
     goods_type_label?: string;
+    /** 1=二手买卖 2=有偿求助 */
+    goods_category?: number;
+    goods_category_label?: string;
+    /** 卖家收款码完整 URL（可能为空） */
+    payment_qr_url?: string;
     goods_lat?: number | null;
     goods_lng?: number | null;
     /** 卖方用户 id */
     user_id?: number | null;
+    /** 后端目前未返回，保留为兜底 */
+    author?: { id: number; username?: string; avatar?: string };
   };
   created_at?: string;
 };
@@ -127,6 +134,17 @@ export async function confirmDelivery(
 
 export async function confirmReceipt(orderId: number, body: Record<string, unknown> = {}) {
   return apiRequest<unknown>(`/orders/${orderId}/confirm-receipt`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+/** 有偿求助：发布者上传付酬截图，订单 1→3（待接单者确认收到酬劳） */
+export async function helpPublisherPay(
+  orderId: number,
+  body: { payment_image: string; note?: string },
+) {
+  return apiRequest<unknown>(`/orders/${orderId}/help/pay`, {
     method: 'POST',
     body: JSON.stringify(body),
   });

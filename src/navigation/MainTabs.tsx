@@ -5,18 +5,37 @@ import Ionicons from 'react-native-vector-icons/Ionicons';
 import TabTransitionContainer from '../components/TabTransitionContainer';
 import HomeScreen from '../screens/HomeScreen';
 import Community from '../screens/Community';
-import ChatListScreen from '../screens/ChatListScreen';
+import HelpFeedScreen from '../screens/HelpFeedScreen';
 import GoodListScreen from '../screens/GoodListScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import { colors } from '../theme/colors';
+import { useMessagesUnread } from '../context/MessagesUnreadContext';
+import { useNotifSettings } from '../utils/notifSettings';
 
 const Tab = createBottomTabNavigator();
 
+/**
+ * 未读数 + 偏好 → 「我的」tab badge：
+ * - 关闭「显示数字」：>0 返回空格，容器画红点
+ * - 开启「显示数字」：真实数字或 99+
+ */
+function useMessagesBadge(): string | number | undefined {
+  const { total } = useMessagesUnread();
+  const { showBadgeCount } = useNotifSettings();
+  if (total <= 0) {
+    return undefined;
+  }
+  if (!showBadgeCount) {
+    return ' ';
+  }
+  return total > 99 ? '99+' : total;
+}
+
 export default function MainTabs() {
   const insets = useSafeAreaInsets();
-  /** 底部系统导航栏（三键导航等）与 Home 指示条由 safe area 提供 */
   const bottomPad = Math.max(insets.bottom, 10);
   const tabBarHeight = 52 + bottomPad;
+  const profileBadge = useMessagesBadge();
 
   return (
     <Tab.Navigator
@@ -43,10 +62,6 @@ export default function MainTabs() {
         name="Home"
         options={{
           title: '发现',
-          /**
-           * 发现页有搜索框；若全局 tabBarHideOnKeyboard 为 true，从其它 Tab 带键盘切回时
-           * isKeyboardShown 仍为 true，底栏会一直隐藏。此 Tab 固定显示底栏。
-           */
           tabBarHideOnKeyboard: false,
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="compass-outline" color={color} size={size} />
@@ -73,16 +88,16 @@ export default function MainTabs() {
         )}
       </Tab.Screen>
       <Tab.Screen
-        name="Chat"
+        name="Help"
         options={{
-          title: '聊天',
+          title: '求助',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="chatbubble-ellipses-outline" color={color} size={size} />
+            <Ionicons name="help-buoy-outline" color={color} size={size} />
           ),
         }}>
         {() => (
           <TabTransitionContainer>
-            <ChatListScreen />
+            <HelpFeedScreen />
           </TabTransitionContainer>
         )}
       </Tab.Screen>
@@ -107,6 +122,15 @@ export default function MainTabs() {
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="person-outline" color={color} size={size} />
           ),
+          tabBarBadge: profileBadge,
+          tabBarBadgeStyle: {
+            backgroundColor: '#FF3B30',
+            color: '#fff',
+            fontSize: 11,
+            minWidth: 16,
+            height: 16,
+            lineHeight: 14,
+          },
         }}>
         {() => (
           <TabTransitionContainer>

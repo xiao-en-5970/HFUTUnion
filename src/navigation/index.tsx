@@ -3,6 +3,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import RootStack from './RootStack';
 import { navigationRef } from './rootNavigation';
 import { setSessionExpiredHandler } from '../api/client';
+import { MessagesUnreadProvider } from '../context/MessagesUnreadContext';
 
 export default function Navigation() {
   useEffect(() => {
@@ -18,7 +19,10 @@ export default function Navigation() {
 
   return (
     <NavigationContainer ref={navigationRef}>
-      <RootStack />
+      {/* 未读 Provider 提到最顶层：Stack 里的 Messages/Profile 都能共享同一份轮询 */}
+      <MessagesUnreadProvider>
+        <RootStack />
+      </MessagesUnreadProvider>
     </NavigationContainer>
   );
 }

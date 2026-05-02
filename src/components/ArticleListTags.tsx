@@ -25,6 +25,16 @@ const KIND_LABEL: Record<ArticleListKind, string> = {
   answer: '回答',
 };
 
+/** 每类内容一套独立配色，帖子/求助/回答在混排列表里一眼可分 */
+const KIND_STYLES: Record<
+  ArticleListKind,
+  { bg: string; border: string; text: string }
+> = {
+  post: { bg: colors.primaryLight, border: '#99F6E4', text: colors.primary },
+  question: { bg: '#FEF3C7', border: '#FDE68A', text: '#B45309' },
+  answer: { bg: '#F3E8FF', border: '#E9D5FF', text: '#7C3AED' },
+};
+
 type Props = {
   /** 后端 type：1 帖子 2 求助(question) 3 回答 */
   articleType?: number | null;
@@ -47,6 +57,7 @@ export default function ArticleListTags({
 }: Props) {
   const kind = kindProp ?? articleTypeToKind(articleType ?? undefined);
   const typeLabel = KIND_LABEL[kind];
+  const kindStyle = KIND_STYLES[kind];
 
   let scopeLabel: string | null = null;
   let scopeVariant: 'wide' | 'school' | null = null;
@@ -62,8 +73,14 @@ export default function ArticleListTags({
 
   return (
     <View style={[styles.row, compact && styles.rowCompact]}>
-      <View style={[styles.pill, styles.pillKind]}>
-        <Text style={styles.pillKindText}>{typeLabel}</Text>
+      <View
+        style={[
+          styles.pill,
+          { backgroundColor: kindStyle.bg, borderColor: kindStyle.border },
+        ]}>
+        <Text style={[styles.pillKindText, { color: kindStyle.text }]}>
+          {typeLabel}
+        </Text>
       </View>
       {scopeLabel != null && scopeVariant != null ? (
         <View
@@ -100,14 +117,9 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
     borderWidth: StyleSheet.hairlineWidth,
   },
-  pillKind: {
-    backgroundColor: colors.primaryLight,
-    borderColor: '#99F6E4',
-  },
   pillKindText: {
     fontSize: 11,
     fontWeight: '700',
-    color: colors.primary,
     letterSpacing: 0.3,
   },
   pillWide: {
