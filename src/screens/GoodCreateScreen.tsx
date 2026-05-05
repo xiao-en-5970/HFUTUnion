@@ -771,8 +771,7 @@ export default function GoodCreateScreen({ navigation, route }: any) {
           <>
             <Text style={styles.label}>收款码（可选）</Text>
             <Text style={styles.addrHint}>
-              上传后，买家点击「付款」会看到这张图并可保存到相册。
-              留空时买家会看到「请在聊天中联系卖家」。
+              上传后买家可在订单中查看；留空时由你和买家在聊天里商定
             </Text>
             <View style={styles.qrBlock}>
               {paymentQr ? (

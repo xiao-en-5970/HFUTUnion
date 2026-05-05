@@ -119,7 +119,7 @@ export default function CheckoutAddressModal({
           <Text style={styles.title}>{headerTitle}</Text>
           <Text style={styles.hint}>
             {hint ??
-              `聊天与订单绑定；创建订单后卖方可在订单中查看收货位置与距离。${
+              `下单后卖方可看到你的收货位置与距离${
                 goodsTypeLabel ? ` · ${goodsTypeLabel}` : ''
               }`}
           </Text>

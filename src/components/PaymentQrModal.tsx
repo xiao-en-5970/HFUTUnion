@@ -45,7 +45,7 @@ export default function PaymentQrModal({
     try {
       setSaving(true);
       await saveRemoteImageToGallery(qrUrl);
-      Alert.alert('已保存到相册', '打开相册即可使用收款码付款');
+      Alert.alert('已保存到相册', '可在相册中打开使用');
     } catch (e: any) {
       Alert.alert('保存失败', e?.message || '请稍后重试');
     } finally {
@@ -76,7 +76,7 @@ export default function PaymentQrModal({
               <View style={styles.qrFrame}>
                 <Image source={{ uri: qrUrl }} style={styles.qr} resizeMode="contain" />
               </View>
-              <Text style={styles.hint}>转账后把付款截图发到聊天作为凭证</Text>
+              <Text style={styles.hint}>付款后发截图到聊天作为凭证</Text>
               <View style={styles.actions}>
                 <TouchableOpacity
                   style={[styles.actionBtn, styles.actionSave, saving && styles.actionDisabled]}
@@ -110,9 +110,9 @@ export default function PaymentQrModal({
           ) : (
             <View style={styles.emptyBox}>
               <Ionicons name="qr-code" size={72} color={colors.border} />
-              <Text style={styles.emptyTitle}>卖家未提供收款码</Text>
+              <Text style={styles.emptyTitle}>暂无收款码</Text>
               <Text style={styles.emptySub}>
-                请在聊天里和卖家商定付款方式，付款后发截图作为凭证
+                在聊天里和卖家商定付款方式即可
               </Text>
               <TouchableOpacity style={styles.emptyBtn} onPress={onClose}>
                 <Text style={styles.emptyBtnText}>去聊天</Text>

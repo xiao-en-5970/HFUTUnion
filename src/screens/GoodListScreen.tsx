@@ -437,8 +437,8 @@ export default function GoodListScreen() {
                   {dist != null
                     ? `距参考点 ${formatDistance(dist)}`
                     : refPoint == null
-                      ? '右上角选择参考位置后可显示距离'
-                      : '商品无坐标时无法算距'}
+                      ? '选定参考点后显示距离'
+                      : '位置待定'}
                 </Text>
               </TouchableOpacity>
             );
@@ -454,7 +454,7 @@ export default function GoodListScreen() {
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>市集距离参考</Text>
             <Text style={styles.modalHint}>
-              用来算商品与你的距离。可从地址簿选一条，或用当前定位。
+              选一个参考点，用来算商品距离
             </Text>
 
             <TouchableOpacity
@@ -477,7 +477,7 @@ export default function GoodListScreen() {
               keyExtractor={(i) => String(i.id)}
               keyboardShouldPersistTaps="handled"
               ListEmptyComponent={
-                <Text style={styles.modalEmpty}>还没有保存的地址，可在下方管理地址后添加</Text>
+                <Text style={styles.modalEmpty}>还没有保存的地址，去下方添加</Text>
               }
               renderItem={({ item }) => (
                 <TouchableOpacity

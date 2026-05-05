@@ -34,6 +34,7 @@ import {
   confirmReceipt,
   updateOrderLocation,
   helpPublisherPay,
+  urgeOrderMessage,
   type OrderRow,
 } from '../api/orders';
 import { uploadOssUserFile } from '../api/oss';
@@ -65,6 +66,8 @@ type Msg = {
   msg_type?: number;
   created_at?: string;
   sender_id?: number;
+  urgent?: boolean;
+  urged_at?: string | null;
 };
 
 export default function OrderChatScreen() {
@@ -170,7 +173,7 @@ export default function OrderChatScreen() {
       setLocations(locs);
       if (!locs.length) {
         setCheckoutMode(null);
-        Alert.alert('提示', '请先添加收货地址（建议地图选点以便计算距离）', [
+        Alert.alert('提示', '请先添加收货地址（地图选点更准）', [
           { text: '去添加', onPress: () => navigation.navigate('AddressList') },
           { text: '取消', style: 'cancel' },
         ]);
@@ -566,7 +569,7 @@ export default function OrderChatScreen() {
       return (
         <View style={[styles.banner, styles.bannerHelp]}>
           <Text style={styles.bannerTitle}>求助已取消</Text>
-          <Text style={styles.bannerDesc}>仍可在此沟通后续问题</Text>
+          <Text style={styles.bannerDesc}>仍可在此沟通</Text>
         </View>
       );
     }
@@ -574,16 +577,16 @@ export default function OrderChatScreen() {
       return (
         <View style={[styles.banner, styles.bannerHelp]}>
           <Text style={styles.bannerTitle}>任务已完成</Text>
-          <Text style={styles.bannerDesc}>酬劳已确认；如有问题请在此继续沟通</Text>
+          <Text style={styles.bannerDesc}>酬劳已确认，有问题继续沟通即可</Text>
         </View>
       );
     }
     if (st === 1 && isSeller) {
       return (
         <View style={[styles.banner, styles.bannerHelp]}>
-          <Text style={styles.bannerTitle}>进行中 · 待您支付酬劳</Text>
+          <Text style={styles.bannerTitle}>进行中 · 待支付酬劳</Text>
           <Text style={styles.bannerDesc}>
-            请与接单者在此协商进度；完成后上传付酬截图，接单者确认后任务关闭。
+            完成后上传付酬截图，接单者确认即可关闭
           </Text>
           <TouchableOpacity
             style={[styles.bannerBtn, actionBusy && styles.bannerBtnDisabled]}
@@ -603,7 +606,7 @@ export default function OrderChatScreen() {
         <View style={[styles.banner, styles.bannerHelpMuted]}>
           <Text style={styles.bannerTitle}>进行中</Text>
           <Text style={styles.bannerDesc}>
-            请按求助内容完成任务；发布者会在完成后上传付酬截图。
+            按要求完成；发布者随后上传付酬截图
           </Text>
         </View>
       );
@@ -611,9 +614,9 @@ export default function OrderChatScreen() {
     if (st === 3 && isBuyer) {
       return (
         <View style={[styles.banner, styles.bannerHelp]}>
-          <Text style={styles.bannerTitle}>发布者已付酬 · 待您确认</Text>
+          <Text style={styles.bannerTitle}>发布者已付酬 · 待确认</Text>
           <Text style={styles.bannerDesc}>
-            请核对付酬截图；确认收到后点下方按钮，任务将标记为已完成。
+            核对付酬截图，确认即可标记完成
           </Text>
           <TouchableOpacity
             style={[styles.bannerBtn, actionBusy && styles.bannerBtnDisabled]}
@@ -631,9 +634,9 @@ export default function OrderChatScreen() {
     if (st === 3 && isSeller) {
       return (
         <View style={[styles.banner, styles.bannerHelpMuted]}>
-          <Text style={styles.bannerTitle}>已上传付酬 · 待对方确认</Text>
+          <Text style={styles.bannerTitle}>已付酬 · 待对方确认</Text>
           <Text style={styles.bannerDesc}>
-            等待接单者核对付酬截图并点「确认已收到酬劳」。
+            等接单者确认收到酬劳
           </Text>
         </View>
       );
@@ -659,11 +662,11 @@ export default function OrderChatScreen() {
       const hasQr = !!order.good?.payment_qr_url;
       return (
         <View style={styles.banner}>
-          <Text style={styles.bannerTitle}>待付款</Text>
+          <Text style={styles.bannerTitle}>{hasQr ? '获取收款码' : '待付款'}</Text>
           <Text style={styles.bannerDesc}>
             {hasQr
-              ? '扫卖家收款码付款，付款后点「确认付款」上传截图。'
-              : '卖家未提供收款码，请在聊天里商定付款方式，付款后点「确认付款」上传截图。'}
+              ? '通过收款码付款后可进行下一步'
+              : '卖家暂未提供收款码，可在聊天里商定'}
           </Text>
           <View style={styles.bannerBtnRow}>
             {hasQr ? (
@@ -693,7 +696,7 @@ export default function OrderChatScreen() {
       return (
         <View style={[styles.banner, styles.bannerMuted]}>
           <Text style={styles.bannerTitle}>待买家付款</Text>
-          <Text style={styles.bannerDesc}>买家还没付款，可先在此沟通</Text>
+          <Text style={styles.bannerDesc}>买家未付款，可先沟通</Text>
         </View>
       );
     }
@@ -724,7 +727,7 @@ export default function OrderChatScreen() {
           {dm != null ? (
             <Text style={styles.bannerAddr}>直线距离：{formatDistance(dm)}</Text>
           ) : null}
-          <Text style={styles.bannerDesc}>付款凭证已发送，等卖家确认</Text>
+          <Text style={styles.bannerDesc}>付款凭证已发，等卖家确认</Text>
         </View>
       );
     }
@@ -737,7 +740,7 @@ export default function OrderChatScreen() {
           {dm != null ? (
             <Text style={styles.bannerAddr}>直线距离：{formatDistance(dm)}</Text>
           ) : null}
-          <Text style={styles.bannerDesc}>核对买家付款截图后，上传你的收款截图完成确认</Text>
+          <Text style={styles.bannerDesc}>核对买家付款截图后，上传收款截图确认</Text>
           <TouchableOpacity
             style={[styles.bannerBtn, actionBusy && styles.bannerBtnDisabled]}
             disabled={actionBusy}
@@ -755,7 +758,7 @@ export default function OrderChatScreen() {
       return (
         <View style={styles.banner}>
           <Text style={styles.bannerTitle}>{gt === 2 ? '待自提 / 送达' : '待送达'}</Text>
-          <Text style={styles.bannerDesc}>送达后上传至少一张凭证图确认</Text>
+          <Text style={styles.bannerDesc}>送达后上传凭证图确认</Text>
           <TouchableOpacity
             style={[styles.bannerBtn, actionBusy && styles.bannerBtnDisabled]}
             disabled={actionBusy}
@@ -774,7 +777,7 @@ export default function OrderChatScreen() {
         <View style={[styles.banner, styles.bannerMuted]}>
           <Text style={styles.bannerTitle}>进行中</Text>
           <Text style={styles.bannerDesc}>
-            {gt === 2 ? '请按约定自提或等卖家送达' : '卖家正在发货'}
+            {gt === 2 ? '按约定自提或等送达' : '卖家正在发货'}
           </Text>
         </View>
       );
@@ -808,6 +811,45 @@ export default function OrderChatScreen() {
     return null;
   };
 
+  /** P3.3 加急：长按自己发的、未加急的消息弹确认；接受后调 urgeOrderMessage。
+   *
+   * 不在每条消息独立维护 busy 状态——加急本身有 5min 限流，串行触发即可。
+   */
+  const onLongPressMsg = useCallback(
+    (item: Msg) => {
+      if (!orderId || actionBusy) return;
+      const mine = myId != null && item.sender_id === myId;
+      if (!mine) return;
+      if (item.urgent) {
+        Alert.alert('已加急过', '该消息已加急通知对方');
+        return;
+      }
+      Alert.alert(
+        '加急通知对方',
+        '系统会向对方 QQ 发一条加急提醒。同一对话每 5 分钟限 1 次，确定加急吗？',
+        [
+          { text: '取消', style: 'cancel' },
+          {
+            text: '加急',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                setActionBusy(true);
+                await urgeOrderMessage(orderId, item.id);
+                await refreshAll();
+              } catch (e: any) {
+                Alert.alert('加急失败', e?.message || '请稍后再试');
+              } finally {
+                setActionBusy(false);
+              }
+            },
+          },
+        ],
+      );
+    },
+    [orderId, actionBusy, myId, refreshAll],
+  );
+
   const renderMsg = ({ item }: { item: Msg }) => {
     const mt = item.msg_type ?? 1;
     if (mt === 3) {
@@ -819,9 +861,14 @@ export default function OrderChatScreen() {
     }
     const mine = myId != null && item.sender_id === myId;
     const mineBubbleStyle = isHelp ? styles.bubbleMineHelp : styles.bubbleMine;
+    const urgent = !!item.urgent;
     return (
       <View style={[styles.msgRow, mine ? styles.rowMine : styles.rowOther]}>
-        <View style={[styles.bubble, mine ? mineBubbleStyle : styles.bubbleOther]}>
+        <TouchableOpacity
+          activeOpacity={0.95}
+          delayLongPress={400}
+          onLongPress={() => onLongPressMsg(item)}
+          style={[styles.bubble, mine ? mineBubbleStyle : styles.bubbleOther, urgent && styles.bubbleUrgent]}>
           {mt === 2 && item.image_url ? (
             <TouchableOpacity
               activeOpacity={0.9}
@@ -835,7 +882,13 @@ export default function OrderChatScreen() {
           ) : (
             <Text style={[styles.msgText, mine && styles.msgTextMine]}>{item.content || ''}</Text>
           )}
-        </View>
+          {urgent ? (
+            <View style={styles.urgentBadge}>
+              <Ionicons name="flash" size={10} color="#fff" />
+              <Text style={styles.urgentBadgeText}>加急</Text>
+            </View>
+          ) : null}
+        </TouchableOpacity>
       </View>
     );
   };
@@ -1180,10 +1233,28 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     paddingHorizontal: 12,
     paddingVertical: 10,
+    position: 'relative',
   },
   bubbleMine: { backgroundColor: colors.primary },
   bubbleMineHelp: { backgroundColor: '#F97316' },
   bubbleOther: { backgroundColor: '#ECEFF2' },
+  bubbleUrgent: {
+    borderWidth: 1,
+    borderColor: '#EF4444',
+  },
+  urgentBadge: {
+    position: 'absolute',
+    top: -8,
+    right: -6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EF4444',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    gap: 2,
+  },
+  urgentBadgeText: { fontSize: 10, color: '#fff', fontWeight: '700' },
   msgText: { fontSize: 16, color: colors.text, lineHeight: 22 },
   msgTextMine: { color: '#fff' },
   msgImg: { width: 200, height: 200, borderRadius: radius.sm },

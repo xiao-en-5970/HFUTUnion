@@ -100,9 +100,25 @@ export async function orderMessages(orderId: number, page = 1, pageSize = 50) {
       msg_type?: number;
       created_at?: string;
       sender_id?: number;
+      /** P3.3 加急：当前消息已被加急（红色徽章 + 提示对方 QQ 已收到加急通知） */
+      urgent?: boolean;
+      /** P3.3 加急时间戳（ISO 串）；用作徽章 hover tooltip */
+      urged_at?: string | null;
     }>;
     total: number;
   }>(`/orders/${orderId}/messages${buildQuery({ page, pageSize })}`);
+}
+
+/** P3.3 加急：把订单中某条消息推到对方 QQ。
+ *
+ * 后端返回 429 时 data.retry_after_seconds = 剩余秒数；前端用做按钮倒计时。
+ * 成功后页面应重新拉一次 orderMessages 让 urgent 字段刷新。
+ */
+export async function urgeOrderMessage(orderId: number, msgId: number) {
+  return apiRequest<unknown>(`/orders/${orderId}/messages/${msgId}/urge`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
 }
 
 export async function postOrderMessage(
