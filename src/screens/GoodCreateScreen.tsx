@@ -445,8 +445,11 @@ export default function GoodCreateScreen({ navigation, route }: any) {
       return;
     }
     if (!priceNegotiable) {
-      if (Number.isNaN(py) || py <= 0) {
-        Alert.alert('提示', '请填写大于 0 的价格，或打开「价格面议」');
+      if (Number.isNaN(py) || py < 0) {
+        Alert.alert(
+          '提示',
+          '请填写价格（可填 0 表示免费送），或打开「价格面议」',
+        );
         return;
       }
     }
@@ -913,7 +916,7 @@ export default function GoodCreateScreen({ navigation, route }: any) {
           <View style={styles.deadlineText}>
             <Text style={styles.deadlineLabel}>价格面议</Text>
             <Text style={styles.deadlineHint}>
-              打开后不按数字标价；二手与有偿求助均可勾选
+              仅在未出价或打算写「面议」时用；免费送请关开关并在价格填 0
             </Text>
           </View>
           <Switch
@@ -935,8 +938,8 @@ export default function GoodCreateScreen({ navigation, route }: any) {
             priceNegotiable
               ? '已选面议'
               : isHelp
-                ? '酬劳（元）'
-                : '价格（元）'
+                ? '酬劳（元，可填 0）'
+                : '价格（元，可填 0 免费送）'
           }
           placeholderTextColor={colors.textMuted}
           value={priceYuan}

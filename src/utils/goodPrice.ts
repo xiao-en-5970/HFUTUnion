@@ -1,5 +1,5 @@
 /**
- * 商品售价展示文案：后端 negotiable=true 时价格字段常为 0，应显示「面议」。
+ * 商品售价展示：negotiable=true →「面议」。否则按分标价（含免费送 ¥0.00，negotiable=false）。
  */
 export function formatGoodPrice(
   cents: number | undefined | null,
