@@ -97,8 +97,8 @@ export default function GoodCreateScreen({ navigation, route }: any) {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [priceYuan, setPriceYuan] = useState('');
-  /** 编辑加载时后端若 negotiable=true，允许价格框留空以保持面议 */
-  const [loadedNegotiable, setLoadedNegotiable] = useState(false);
+  /** 「价格面议」：新建可勾；编辑时按后端 negotiable 初始化 */
+  const [priceNegotiable, setPriceNegotiable] = useState(false);
   const [stock, setStock] = useState('1');
   const [loading, setLoading] = useState(false);
   const [images, setImages] = useState<Picked[]>([]);
@@ -161,7 +161,7 @@ export default function GoodCreateScreen({ navigation, route }: any) {
         setLocationsLoading(false);
         setTitle(g.title || '');
         setContent(g.content || '');
-        setLoadedNegotiable(!!g.negotiable);
+        setPriceNegotiable(!!g.negotiable);
         setPriceYuan(g.negotiable ? '' : String((g.price ?? 0) / 100));
         setStock(String(g.stock ?? 1));
         setCategory(
@@ -440,14 +440,15 @@ export default function GoodCreateScreen({ navigation, route }: any) {
   const submit = async () => {
     const trimmedPrice = priceYuan.trim();
     const py = trimmedPrice === '' ? NaN : parseFloat(trimmedPrice);
-    const priceRequired = !(goodId && loadedNegotiable && trimmedPrice === '');
     if (!title.trim() || !content.trim()) {
       Alert.alert('提示', '请填写标题与描述');
       return;
     }
-    if (priceRequired && Number.isNaN(py)) {
-      Alert.alert('提示', '请填写价格');
-      return;
+    if (!priceNegotiable) {
+      if (Number.isNaN(py) || py <= 0) {
+        Alert.alert('提示', '请填写大于 0 的价格，或打开「价格面议」');
+        return;
+      }
     }
 
     const selected = locations.find((l) => l.id === selectedLocationId);
@@ -494,10 +495,7 @@ export default function GoodCreateScreen({ navigation, route }: any) {
           urls.push(url);
         }
       }
-      const cents =
-        goodId && loadedNegotiable && trimmedPrice === ''
-          ? 0
-          : Math.round((py as number) * 100);
+      const cents = priceNegotiable ? 0 : Math.round(py * 100);
       // 有偿求助不暴露库存字段，固定为 1：求助属于一次性任务，接单并完成后即下架
       const stockNum = isHelp ? 1 : Math.max(0, parseInt(stock, 10) || 0);
 
@@ -534,6 +532,7 @@ export default function GoodCreateScreen({ navigation, route }: any) {
         has_deadline: hasDeadline && !!deadlineISO,
         deadline: deadlineISO,
         price: cents,
+        negotiable: priceNegotiable,
         marked_price: 0,
         stock: stockNum,
       } as const;
@@ -910,13 +909,33 @@ export default function GoodCreateScreen({ navigation, route }: any) {
           multiline
           textAlignVertical="top"
         />
+        <View style={styles.deadlineRow}>
+          <View style={styles.deadlineText}>
+            <Text style={styles.deadlineLabel}>价格面议</Text>
+            <Text style={styles.deadlineHint}>
+              打开后不按数字标价；二手与有偿求助均可勾选
+            </Text>
+          </View>
+          <Switch
+            value={priceNegotiable}
+            onValueChange={(v) => {
+              setPriceNegotiable(v);
+              if (v) {
+                setPriceYuan('');
+              }
+            }}
+            trackColor={{ true: colors.primaryLight, false: '#E5E7EB' }}
+            thumbColor={priceNegotiable ? colors.primary : '#F4F4F5'}
+          />
+        </View>
         <TextInput
-          style={styles.input}
+          style={[styles.input, priceNegotiable && styles.inputMuted]}
+          editable={!priceNegotiable}
           placeholder={
-            isHelp
-              ? '酬劳（元）'
-              : loadedNegotiable
-                ? '价格（元，面议可留空）'
+            priceNegotiable
+              ? '已选面议'
+              : isHelp
+                ? '酬劳（元）'
                 : '价格（元）'
           }
           placeholderTextColor={colors.textMuted}
@@ -1085,6 +1104,7 @@ const styles = StyleSheet.create({
     marginBottom: space.md,
   },
   area: { minHeight: 120, maxHeight: 280 },
+  inputMuted: { opacity: 0.55 },
   segment: {
     flexDirection: 'row',
     gap: 10,

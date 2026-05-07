@@ -148,6 +148,8 @@ export async function createGood(body: {
   deadline?: string | null;
   goods_lat?: number | null;
   goods_lng?: number | null;
+  /** true 时面议；服务端 price 建议传 0 */
+  negotiable?: boolean;
 }) {
   return apiRequest<{ id: number }>('/goods', {
     method: 'POST',
