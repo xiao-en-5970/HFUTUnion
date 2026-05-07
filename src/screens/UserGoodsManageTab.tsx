@@ -29,6 +29,7 @@ import {
   mergeById,
 } from '../utils/pagination';
 import type { RootStackParamList } from '../navigation/RootStack';
+import { formatGoodPrice } from '../utils/goodPrice';
 
 const GOOD_ON = 1;
 const GOOD_OFF = 2;
@@ -53,10 +54,6 @@ function statusLabel(g: GoodRow) {
     return { text: '已售出', color: colors.accent };
   }
   return { text: '—', color: colors.textMuted };
-}
-
-function yuanFromCents(cents: number) {
-  return (cents / 100).toFixed(cents % 100 === 0 ? 0 : 2);
 }
 
 export default function UserGoodsManageTab({ stackNavigation }: Props) {
@@ -224,7 +221,7 @@ export default function UserGoodsManageTab({ stackNavigation }: Props) {
               {item.title}
             </Text>
             <Text style={styles.price}>
-              ¥{yuanFromCents(item.price ?? 0)}
+              {formatGoodPrice(item.price, item.negotiable)}
               <Text style={styles.stock}> · 库存 {item.stock ?? 0}</Text>
             </Text>
             <View style={styles.stats}>

@@ -21,6 +21,7 @@ import { fetchUserLocations, type UserLocation } from '../api/user';
 import Screen from '../components/Screen';
 import { colors, radius, space } from '../theme/colors';
 import { haversineMeters, formatDistance } from '../utils/geo';
+import { formatGoodPrice } from '../utils/goodPrice';
 import {
   resolveMarketplaceRef,
   saveMarketplaceRefPref,
@@ -335,7 +336,10 @@ export default function GoodListScreen() {
                   )
                 : null;
             const marked = item.marked_price;
-            const hasDisc = marked != null && marked > item.price;
+            const hasDisc =
+              !item.negotiable &&
+              marked != null &&
+              marked > item.price;
             const pct = hasDisc ? discountPercent(marked, item.price) : 0;
             const hasCover = Boolean(item.images?.[0]);
             // 本地 viewedTracker ∪ 后端 is_viewed（跨设备），任一命中即灰字
@@ -416,7 +420,7 @@ export default function GoodListScreen() {
                 )}
                 <View style={[styles.priceRow, !hasCover && styles.priceRowCompact]}>
                   <Text style={[styles.price, viewed && styles.viewedPrice]}>
-                    {formatPrice(item.price)}
+                    {formatGoodPrice(item.price, item.negotiable)}
                   </Text>
                   {hasDisc ? (
                     <>

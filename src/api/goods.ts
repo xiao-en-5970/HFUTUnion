@@ -13,6 +13,8 @@ export type GoodRow = {
   content?: string;
   images?: string[];
   price: number;
+  /** true 时不展示 numerical 价格，应显示「面议」 */
+  negotiable?: boolean;
   marked_price?: number;
   stock: number;
   goods_type?: number;

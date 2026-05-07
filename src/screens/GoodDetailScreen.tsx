@@ -29,6 +29,7 @@ import { resolveCurrentUserId } from '../utils/userId';
 import { markViewed } from '../utils/viewedTracker';
 import { isDeadlineExpired, renderDeadlineBadge } from '../utils/deadline';
 import { formatAuthorName } from '../utils/authorName';
+import { formatGoodPrice } from '../utils/goodPrice';
 
 const EXT_GOODS = 4;
 
@@ -326,7 +327,11 @@ export default function GoodDetailScreen({ route }: any) {
 
   const isHelp = g.goods_category === 2;
   const marked = g.marked_price as number | undefined;
-  const hasDisc = !isHelp && marked != null && marked > g.price;
+  const hasDisc =
+    !isHelp &&
+    !g.negotiable &&
+    marked != null &&
+    marked > g.price;
   const pct = hasDisc ? discountPercent(marked, g.price) : 0;
 
   const galleryUrls = ((g.images as string[] | undefined)?.filter(Boolean) ?? []) as string[];
@@ -400,7 +405,9 @@ export default function GoodDetailScreen({ route }: any) {
 
         <View style={styles.priceBlock}>
           <View style={styles.priceMainRow}>
-            <Text style={styles.price}>{formatPrice(g.price)}</Text>
+            <Text style={styles.price}>
+              {formatGoodPrice(g.price, g.negotiable)}
+            </Text>
             {hasDisc ? (
               <>
                 <Text style={styles.old}>{formatPrice(marked)}</Text>
