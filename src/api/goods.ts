@@ -15,6 +15,8 @@ export type GoodRow = {
   price: number;
   /** true 时不展示 numerical 价格，应显示「面议」 */
   negotiable?: boolean;
+  /** 可砍价（与面议独立） */
+  bargain?: boolean;
   marked_price?: number;
   stock: number;
   goods_type?: number;
@@ -150,6 +152,7 @@ export async function createGood(body: {
   goods_lng?: number | null;
   /** true 时面议；服务端 price 建议传 0 */
   negotiable?: boolean;
+  bargain?: boolean;
 }) {
   return apiRequest<{ id: number }>('/goods', {
     method: 'POST',

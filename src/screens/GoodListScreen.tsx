@@ -422,6 +422,11 @@ export default function GoodListScreen() {
                   <Text style={[styles.price, viewed && styles.viewedPrice]}>
                     {formatGoodPrice(item.price, item.negotiable)}
                   </Text>
+                  {item.bargain ? (
+                    <View style={styles.bargainTag}>
+                      <Text style={styles.bargainTagText}>可刀</Text>
+                    </View>
+                  ) : null}
                   {hasDisc ? (
                     <>
                       <Text style={styles.oldPrice}>{formatPrice(marked)}</Text>
@@ -449,7 +454,12 @@ export default function GoodListScreen() {
           }}
         />
 
-        <CreateFab onPress={() => navigation.navigate('GoodCreate')} accessibilityLabel="发布闲置" />
+        <CreateFab
+          onPress={() =>
+            navigation.navigate('GoodCreate', { secondHandOnly: true })
+          }
+          accessibilityLabel="发布闲置"
+        />
       </View>
 
       <Modal visible={pickerOpen} animationType="fade" transparent>
@@ -684,6 +694,13 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   discBadgeText: { fontSize: 10, fontWeight: '800', color: '#DC2626' },
+  bargainTag: {
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  bargainTagText: { fontSize: 10, fontWeight: '800', color: '#B45309' },
   priceRowCompact: { paddingTop: 4 },
   metaLine: {
     fontSize: 11,

@@ -93,12 +93,16 @@ export default function GoodCreateScreen({ navigation, route }: any) {
   const goodId = route.params?.goodId as number | undefined;
   /** 从「求助」tab 进入时会预置为 2；预置后用户不能再切换类别（避免误发） */
   const initialCategory = route.params?.initialCategory as 1 | 2 | undefined;
+  /** 从「市集」FAB 进来：只允许二手买卖，不展示「有偿求助」 */
+  const secondHandOnly = route.params?.secondHandOnly === true;
 
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [priceYuan, setPriceYuan] = useState('');
   /** 「价格面议」：新建可勾；编辑时按后端 negotiable 初始化 */
   const [priceNegotiable, setPriceNegotiable] = useState(false);
+  /** 仅二手：可刀 */
+  const [bargainOk, setBargainOk] = useState(false);
   const [stock, setStock] = useState('1');
   const [loading, setLoading] = useState(false);
   const [images, setImages] = useState<Picked[]>([]);
@@ -107,8 +111,8 @@ export default function GoodCreateScreen({ navigation, route }: any) {
   const [category, setCategory] = useState<number>(
     initialCategory === GOODS_CATEGORY.Help ? GOODS_CATEGORY.Help : GOODS_CATEGORY.Normal,
   );
-  /** 类别固定（从求助入口进 / 或正在编辑已存在的商品）后不允许切换 */
-  const categoryLocked = !!initialCategory || !!goodId;
+  /** 类别固定：编辑中 / 求助入口 / 市集发布（仅二手） */
+  const categoryLocked = !!goodId || !!initialCategory || secondHandOnly;
   /** 求助无需地址/履约 */
   const isHelp = category === GOODS_CATEGORY.Help;
 
@@ -162,6 +166,7 @@ export default function GoodCreateScreen({ navigation, route }: any) {
         setTitle(g.title || '');
         setContent(g.content || '');
         setPriceNegotiable(!!g.negotiable);
+        setBargainOk(!!g.bargain);
         setPriceYuan(g.negotiable ? '' : String((g.price ?? 0) / 100));
         setStock(String(g.stock ?? 1));
         setCategory(
@@ -536,6 +541,7 @@ export default function GoodCreateScreen({ navigation, route }: any) {
         deadline: deadlineISO,
         price: cents,
         negotiable: priceNegotiable,
+        bargain: !isHelp && bargainOk,
         marked_price: 0,
         stock: stockNum,
       } as const;
@@ -615,19 +621,8 @@ export default function GoodCreateScreen({ navigation, route }: any) {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
         nestedScrollEnabled>
-        <Text style={styles.title}>
-          {goodId
-            ? isHelp
-              ? '编辑求助'
-              : '编辑商品'
-            : isHelp
-              ? '发布求助'
-              : '发布闲置'}
-        </Text>
         <Text style={styles.hint}>
-          {isHelp
-            ? '填你愿意出的酬劳，完成后由接单者向你收款'
-            : '单位：元。图片可不传，有图更易成交'}
+          {isHelp ? '填酬劳与说明即可。' : '选地址后即可上架。'}
         </Text>
 
         {!categoryLocked ? (
@@ -635,8 +630,8 @@ export default function GoodCreateScreen({ navigation, route }: any) {
             <Text style={styles.label}>类别</Text>
             <View style={styles.segment}>
               {[
-                { k: GOODS_CATEGORY.Normal, label: '二手买卖', hint: '我是卖家，需要收款' },
-                { k: GOODS_CATEGORY.Help, label: '有偿求助', hint: '我出钱，悬赏他人完成' },
+                { k: GOODS_CATEGORY.Normal, label: '二手买卖' },
+                { k: GOODS_CATEGORY.Help, label: '有偿求助' },
               ].map((opt) => {
                 const on = category === opt.k;
                 return (
@@ -653,9 +648,6 @@ export default function GoodCreateScreen({ navigation, route }: any) {
                     <Text style={[styles.segmentText, on && styles.segmentTextOn]}>
                       {opt.label}
                     </Text>
-                    <Text style={[styles.segmentHint, on && styles.segmentHintOn]}>
-                      {opt.hint}
-                    </Text>
                   </TouchableOpacity>
                 );
               })}
@@ -663,8 +655,7 @@ export default function GoodCreateScreen({ navigation, route }: any) {
           </>
         ) : null}
 
-        <Text style={styles.label}>商品图片（可不传）</Text>
-        <Text style={styles.imgDragHint}>长按拖动可调整顺序</Text>
+        <Text style={styles.label}>图片 · 可不传</Text>
         <DraggableFlatList
           horizontal
           data={images}
@@ -690,10 +681,7 @@ export default function GoodCreateScreen({ navigation, route }: any) {
 
         {!isHelp ? (
           <>
-        <Text style={styles.label}>商品交易地址</Text>
-        <Text style={styles.addrHint}>
-          从地址簿选已保存的地址（有位置信息时，市集能显示距离），或使用「当前定位」。没有地址时请先到「收货地址」里添加。
-        </Text>
+        <Text style={styles.label}>交易地址</Text>
 
         <View style={styles.addrActions}>
           <TouchableOpacity
@@ -729,9 +717,7 @@ export default function GoodCreateScreen({ navigation, route }: any) {
         {locationsLoading ? (
           <ActivityIndicator style={{ marginVertical: 12 }} color={colors.primary} />
         ) : locations.length === 0 ? (
-          <Text style={styles.addrEmpty}>
-            暂无保存地址。请先点「地址簿」添加，或使用「当前定位」。
-          </Text>
+          <Text style={styles.addrEmpty}>暂无地址 · 可点上方定位或地址簿。</Text>
         ) : (
           <View style={styles.addrList}>
             {locations.map((loc) => {
@@ -758,11 +744,6 @@ export default function GoodCreateScreen({ navigation, route }: any) {
                     <Text style={styles.addrRowText} numberOfLines={3}>
                       {loc.addr}
                     </Text>
-                    {loc.lat != null && loc.lng != null ? (
-                      <Text style={styles.addrCoord}>已含地图坐标</Text>
-                    ) : (
-                      <Text style={styles.addrCoordMuted}>无坐标时距离可能无法展示</Text>
-                    )}
                   </View>
                 </TouchableOpacity>
               );
@@ -783,10 +764,7 @@ export default function GoodCreateScreen({ navigation, route }: any) {
 
         {category === GOODS_CATEGORY.Normal ? (
           <>
-            <Text style={styles.label}>收款码（可选）</Text>
-            <Text style={styles.addrHint}>
-              上传后买家可在订单中查看；留空时由你和买家在聊天里商定
-            </Text>
+            <Text style={styles.label}>收款码 · 可选</Text>
             <View style={styles.qrBlock}>
               {paymentQr ? (
                 <View style={styles.qrPreviewWrap}>
@@ -834,18 +812,8 @@ export default function GoodCreateScreen({ navigation, route }: any) {
           </>
         ) : null}
 
-        <Text style={styles.label}>截止时间</Text>
         <View style={styles.deadlineRow}>
-          <View style={styles.deadlineText}>
-            <Text style={styles.deadlineLabel}>
-              {hasDeadline ? '到期自动下架' : '无截止时间'}
-            </Text>
-            <Text style={styles.deadlineHint}>
-              {hasDeadline
-                ? '从现在起计时，到期后自动下架'
-                : '打开后按时长设置，单位天或小时'}
-            </Text>
-          </View>
+          <Text style={[styles.deadlineLabel, { flex: 1 }]}>定时下架</Text>
           <Switch
             value={hasDeadline}
             onValueChange={setHasDeadline}
@@ -884,7 +852,7 @@ export default function GoodCreateScreen({ navigation, route }: any) {
             </View>
             {parsedDuration.ok && parsedDuration.date ? (
               <Text style={styles.deadlinePreview}>
-                预计到期：{formatDeadline(parsedDuration.date)}
+                到期：{formatDeadline(parsedDuration.date)}
               </Text>
             ) : (
               <Text style={styles.deadlineError}>
@@ -905,7 +873,7 @@ export default function GoodCreateScreen({ navigation, route }: any) {
         />
         <TextInput
           style={[styles.input, styles.area]}
-          placeholder="描述成色、交易方式等"
+          placeholder={isHelp ? '说明任务与要求' : '描述'}
           placeholderTextColor={colors.textMuted}
           value={content}
           onChangeText={setContent}
@@ -913,12 +881,7 @@ export default function GoodCreateScreen({ navigation, route }: any) {
           textAlignVertical="top"
         />
         <View style={styles.deadlineRow}>
-          <View style={styles.deadlineText}>
-            <Text style={styles.deadlineLabel}>价格面议</Text>
-            <Text style={styles.deadlineHint}>
-              仅在未出价或打算写「面议」时用；免费送请关开关并在价格填 0
-            </Text>
-          </View>
+          <Text style={[styles.deadlineLabel, { flex: 1 }]}>面议</Text>
           <Switch
             value={priceNegotiable}
             onValueChange={(v) => {
@@ -931,6 +894,17 @@ export default function GoodCreateScreen({ navigation, route }: any) {
             thumbColor={priceNegotiable ? colors.primary : '#F4F4F5'}
           />
         </View>
+        {!isHelp ? (
+          <View style={styles.deadlineRow}>
+            <Text style={[styles.deadlineLabel, { flex: 1 }]}>可刀</Text>
+            <Switch
+              value={bargainOk}
+              onValueChange={setBargainOk}
+              trackColor={{ true: colors.primaryLight, false: '#E5E7EB' }}
+              thumbColor={bargainOk ? colors.primary : '#F4F4F5'}
+            />
+          </View>
+        ) : null}
         <TextInput
           style={[styles.input, priceNegotiable && styles.inputMuted]}
           editable={!priceNegotiable}
@@ -938,8 +912,8 @@ export default function GoodCreateScreen({ navigation, route }: any) {
             priceNegotiable
               ? '已选面议'
               : isHelp
-                ? '酬劳（元，可填 0）'
-                : '价格（元，可填 0 免费送）'
+                ? '酬劳（元）'
+                : '价格（元）'
           }
           placeholderTextColor={colors.textMuted}
           value={priceYuan}
@@ -973,19 +947,12 @@ const styles = StyleSheet.create({
     paddingBottom: space.xl * 2,
     flexGrow: 1,
   },
-  title: { fontSize: 22, fontWeight: '700', color: colors.text },
-  hint: { marginTop: 6, marginBottom: space.md, fontSize: 13, color: colors.textMuted },
+  hint: { marginTop: 2, marginBottom: space.md, fontSize: 13, color: colors.textMuted },
   label: {
     fontSize: 14,
     fontWeight: '600',
     color: colors.textSecondary,
     marginBottom: 8,
-  },
-  addrHint: {
-    fontSize: 12,
-    color: colors.textMuted,
-    lineHeight: 18,
-    marginBottom: space.sm,
   },
   addrActions: { flexDirection: 'row', gap: 10, marginBottom: space.sm },
   addrManageBtn: {
@@ -1027,8 +994,6 @@ const styles = StyleSheet.create({
   addrRowLabel: { fontSize: 15, fontWeight: '600', color: colors.text },
   addrDefault: { fontSize: 11, color: colors.primary, fontWeight: '700' },
   addrRowText: { marginTop: 4, fontSize: 14, color: colors.textSecondary, lineHeight: 20 },
-  addrCoord: { marginTop: 6, fontSize: 11, color: colors.primary, fontWeight: '600' },
-  addrCoordMuted: { marginTop: 6, fontSize: 11, color: colors.textMuted },
   gpsBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1039,11 +1004,6 @@ const styles = StyleSheet.create({
     marginBottom: space.md,
   },
   gpsBannerText: { flex: 1, fontSize: 13, color: colors.text, fontWeight: '500' },
-  imgDragHint: {
-    fontSize: 12,
-    color: colors.textMuted,
-    marginBottom: 8,
-  },
   draggableList: {
     minHeight: 96,
     marginBottom: space.md,
@@ -1128,20 +1088,6 @@ const styles = StyleSheet.create({
   },
   segmentText: { fontSize: 15, fontWeight: '700', color: colors.textSecondary },
   segmentTextOn: { color: colors.primary },
-  segmentHint: { marginTop: 4, fontSize: 11, color: colors.textMuted, lineHeight: 16 },
-  segmentHintOn: { color: colors.primary },
-  helpTip: {
-    marginTop: -6,
-    marginBottom: space.md,
-    fontSize: 12,
-    color: colors.textMuted,
-    lineHeight: 18,
-    padding: 10,
-    backgroundColor: colors.bg,
-    borderRadius: radius.sm,
-    borderLeftWidth: 3,
-    borderLeftColor: colors.primary,
-  },
   qrBlock: { marginBottom: space.md },
   qrUploadBtn: {
     flexDirection: 'row',
@@ -1185,9 +1131,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     marginBottom: space.sm,
   },
-  deadlineText: { flex: 1, minWidth: 0 },
   deadlineLabel: { fontSize: 15, fontWeight: '600', color: colors.text },
-  deadlineHint: { marginTop: 4, fontSize: 12, color: colors.textMuted, lineHeight: 18 },
   durationRow: {
     flexDirection: 'row',
     alignItems: 'center',

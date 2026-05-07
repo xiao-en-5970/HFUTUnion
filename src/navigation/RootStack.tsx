@@ -48,7 +48,9 @@ export type RootStackParamList = {
   EditAnswer: { id: number };
   CreateQuestion: undefined;
   GoodDetail: { id: number };
-  GoodCreate: { goodId?: number; initialCategory?: 1 | 2 } | undefined;
+  GoodCreate:
+    | { goodId?: number; initialCategory?: 1 | 2; secondHandOnly?: boolean }
+    | undefined;
   MyContent: undefined;
   MyCollects: undefined;
   OrderDetail: { id: number };

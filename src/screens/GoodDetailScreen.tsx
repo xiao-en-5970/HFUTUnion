@@ -443,6 +443,11 @@ export default function GoodDetailScreen({ route }: any) {
                 </Text>
               </View>
             ) : null}
+            {!isHelp && g.bargain ? (
+              <View style={[styles.chip, styles.chipBargain]}>
+                <Text style={[styles.chipText, styles.chipBargainText]}>可刀</Text>
+              </View>
+            ) : null}
             {!isHelp ? <Text style={styles.meta}>库存 {g.stock}</Text> : null}
           </View>
           {!isHelp ? (
@@ -585,6 +590,8 @@ const styles = StyleSheet.create({
   chipDeadlineText: { color: '#92400E' },
   chipExpired: { backgroundColor: '#F3F4F6' },
   chipExpiredText: { color: colors.textMuted },
+  chipBargain: { backgroundColor: '#FEF3C7' },
+  chipBargainText: { color: '#B45309' },
   meta: { fontSize: 13, color: colors.textSecondary },
   addr: { fontSize: 14, color: colors.textSecondary, marginTop: 8, lineHeight: 20, flex: 1 },
   addrRow: {
