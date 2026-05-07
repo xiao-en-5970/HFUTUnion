@@ -30,6 +30,7 @@ import {
 import { fetchUserInfo } from '../api/user';
 import PrimaryButton from './PrimaryButton';
 import { colors, radius, space } from '../theme/colors';
+import { formatAuthorName } from '../utils/authorName';
 import type { RootStackParamList } from '../navigation/RootStack';
 
 const OVERLAY = 'rgba(0,0,0,0.38)';
@@ -160,7 +161,7 @@ export default function AnswerCommentsPanel({ answerId, open, onClose, onComment
     if (myId != null && c.user_id != null && Number(c.user_id) === myId) return;
     const parentId = isTopLevel ? c.id : (c.parent_id ?? c.id);
     const replyId = isTopLevel ? undefined : c.id;
-    setReplyTarget({ parentId, replyId, username: c.author?.username || '用户' });
+    setReplyTarget({ parentId, replyId, username: formatAuthorName(c.author) });
     inputRef.current?.focus();
   };
 
@@ -235,7 +236,7 @@ export default function AnswerCommentsPanel({ answerId, open, onClose, onComment
       extType: EXT_ANSWER,
       extId: answerId,
       commentId: c.id,
-      commentAuthor: c.author?.username,
+      commentAuthor: formatAuthorName(c.author),
       commentContent: c.content,
       commentLikeCount: c.like_count ?? 0,
       commentIsLiked: !!c.is_liked,
@@ -291,7 +292,7 @@ export default function AnswerCommentsPanel({ answerId, open, onClose, onComment
                 <View style={styles.cmtBlock}>
                   <TouchableOpacity activeOpacity={0.7} onPress={() => handleReplyTo(c, true)} style={styles.cmtRow}>
                     <View style={styles.cmtMain}>
-                      <Text style={styles.cmtUser}>{c.author?.username || '用户'}</Text>
+                      <Text style={styles.cmtUser}>{formatAuthorName(c.author)}</Text>
                       <Text style={styles.cmtBody}>{c.content}</Text>
                     </View>
                     <TouchableOpacity
@@ -307,11 +308,11 @@ export default function AnswerCommentsPanel({ answerId, open, onClose, onComment
                     <TouchableOpacity key={r.id} activeOpacity={0.7} onPress={() => handleReplyTo(r, false)} style={styles.previewRow}>
                       <View style={styles.cmtMain}>
                         <Text style={styles.cmtUser}>
-                          {r.author?.username || '用户'}
+                          {formatAuthorName(r.author)}
                           {r.reply_to_author ? (
                             <Text style={styles.replyArrow}>
                               {' \u25B8 '}
-                              <Text style={styles.replyTargetUser}>{r.reply_to_author.username}</Text>
+                              <Text style={styles.replyTargetUser}>{formatAuthorName(r.reply_to_author)}</Text>
                             </Text>
                           ) : null}
                         </Text>

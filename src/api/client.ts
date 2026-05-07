@@ -29,6 +29,24 @@ export type ApiEnvelope<T> = {
   data?: T;
 };
 
+/**
+ * apiRequest 在 code !== 200 时抛出的 Error，附带后端 envelope 的 code + data。
+ *
+ * 历史 catch 块都靠 `e?.message` 拿文案——本类继承 Error 不破坏旧路径；
+ * 需要拿 retry_after_seconds / 区分 4291 锁定的页面（如 QQ 认证）可以 instanceof
+ * 检查后读取 `code` / `data`。
+ */
+export class ApiError extends Error {
+  code: number;
+  data?: unknown;
+  constructor(message: string, code: number, data?: unknown) {
+    super(message);
+    this.name = 'ApiError';
+    this.code = code;
+    this.data = data;
+  }
+}
+
 async function parseJson(res: Response): Promise<ApiEnvelope<unknown>> {
   const text = await res.text();
   try {
@@ -93,7 +111,7 @@ export async function apiRequest<T>(
         onSessionExpired?.();
       }, 0);
     }
-    throw new Error(json.message || '请求失败');
+    throw new ApiError(json.message || '请求失败', json.code, json.data);
   }
   return json.data as T;
 }

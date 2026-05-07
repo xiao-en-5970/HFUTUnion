@@ -9,7 +9,7 @@ import PostDetailScreen from '../screens/PostDetailScreen';
 import QuestionDetailScreen from '../screens/QuestionDetailScreen';
 import AnswerDetailScreen from '../screens/AnswerDetailScreen';
 import AnswerComposeScreen from '../screens/AnswerComposeScreen';
-import EditProfileScreen from '../screens/EditProfileScreen';
+import QQBindScreen from '../screens/QQBindScreen';
 import CreateDraftScreen from '../screens/CreateDraftScreen';
 import EditPostScreen from '../screens/EditPostScreen';
 import CreateQuestionScreen from '../screens/CreateQuestionScreen';
@@ -37,7 +37,7 @@ export type RootStackParamList = {
   Login: undefined;
   Register: undefined;
   MainTabs: undefined;
-  EditProfile: { user?: Record<string, unknown> };
+  QQBind: undefined;
   PostDetail: { id: number };
   QuestionDetail: { id: number };
   AnswerDetail: { id: number };
@@ -142,7 +142,7 @@ export default function RootStack() {
       <Stack.Screen name="AddressList" component={AddressListScreen} options={{ title: '收货地址' }} />
       <Stack.Screen name="CommentReplies" component={CommentRepliesScreen} options={{ title: '回复' }} />
       <Stack.Screen name="SchoolBind" component={SchoolBindScreen} options={{ title: '学籍认证' }} />
-      <Stack.Screen name="EditProfile" component={EditProfileScreen} options={{ title: '编辑资料' }} />
+      <Stack.Screen name="QQBind" component={QQBindScreen} options={{ title: 'QQ 认证' }} />
       <Stack.Screen name="MapPicker" component={MapPickerScreen} options={{ title: '选择位置' }} />
       <Stack.Screen name="MapRoute" component={MapRouteScreen} options={{ title: '路线' }} />
       <Stack.Screen name="Settings" component={SettingsScreen} options={{ title: '设置' }} />

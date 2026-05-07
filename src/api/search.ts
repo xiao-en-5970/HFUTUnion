@@ -10,7 +10,13 @@ export type SearchArticleItem = {
   collect_count?: number;
   view_count?: number;
   created_at?: string;
-  author?: { id: number; username: string; avatar?: string };
+  author?: {
+    id: number;
+    username: string;
+    avatar?: string;
+    from_user_id?: number;
+    from_username?: string;
+  };
   /** 0 / null 全站；>0 本校 */
   school_id?: number | null;
 };

@@ -20,6 +20,7 @@ import Screen from '../components/Screen';
 import LoadingMask from '../components/LoadingMask';
 import { colors, radius, space } from '../theme/colors';
 import { cacheGet, cacheSet } from '../utils/cacheStorage';
+import { formatAuthorName } from '../utils/authorName';
 import {
   PAGE_SIZE,
   mergeSearchItems,
@@ -316,7 +317,7 @@ export default function HomeScreen() {
               />
               <View style={styles.cardTop}>
                 <Text style={styles.author} numberOfLines={1}>
-                  {item.author?.username || '用户'}
+                  {formatAuthorName(item.author)}
                 </Text>
               </View>
               <Text style={styles.cardTitle} numberOfLines={2}>

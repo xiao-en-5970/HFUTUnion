@@ -26,7 +26,7 @@ const defaultAvatar = require('../assets/default-avatar.png');
 const defaultBg = require('../assets/default-bg.jpg');
 
 const menuAll = [
-  { key: 'edit', label: '编辑资料', icon: 'person-outline', nav: 'EditProfile' as const },
+  { key: 'qq', label: 'QQ 认证', icon: 'link-outline', nav: 'QQBind' as const },
   { key: 'school', label: '学籍认证', icon: 'school-outline', nav: 'SchoolBind' as const },
   { key: 'addr', label: '收货地址', icon: 'location-outline', nav: 'AddressList' as const },
   { key: 'settings', label: '设置', icon: 'settings-outline', nav: 'Settings' as const },

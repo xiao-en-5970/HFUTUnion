@@ -21,6 +21,7 @@ import LoadingMask from '../components/LoadingMask';
 import CreateFab from '../components/CreateFab';
 import { colors, radius, space } from '../theme/colors';
 import { PAGE_SIZE, mergeById, hasMorePages } from '../utils/pagination';
+import { formatAuthorName } from '../utils/authorName';
 import { markViewed, useViewedSet } from '../utils/viewedTracker';
 import { renderDeadlineBadge, isDeadlineExpired } from '../utils/deadline';
 
@@ -234,7 +235,7 @@ export default function HelpFeedScreen() {
             </Text>
           ) : null}
           <Text style={[styles.meta, viewed && styles.textMuted]}>
-            {q.author?.username ?? '用户'} · {q.answer_count ?? 0} 回答
+            {formatAuthorName(q.author)} · {q.answer_count ?? 0} 回答
           </Text>
         </TouchableOpacity>
       );
@@ -282,7 +283,7 @@ export default function HelpFeedScreen() {
             <View style={styles.priceRow}>
               <Text style={styles.price}>{fmtPrice(g.price)}</Text>
               <Text style={[styles.meta, viewed && styles.textMuted]} numberOfLines={1}>
-                {g.author?.username ?? '发布者'}
+                {formatAuthorName(g.author, '发布者')}
               </Text>
             </View>
           </View>

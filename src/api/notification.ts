@@ -24,6 +24,9 @@ export type NotificationFrom = {
   id: number;
   username: string;
   avatar: string;
+  /** 仅当通知发起者为非孤儿 QQ 旗下号时，由后端 enrich 填入；前端用 formatAuthorName 拼"（来自用户 xxx）" */
+  from_user_id?: number;
+  from_username?: string;
 };
 
 export type NotificationItem = {

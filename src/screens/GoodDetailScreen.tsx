@@ -15,7 +15,7 @@ import OriginalImageViewer from '../components/OriginalImageViewer';
 import LoadingMask from '../components/LoadingMask';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { createOrder } from '../api/orders';
-import { getGood } from '../api/goods';
+import { getGood, requestOffShelfFromOrphan } from '../api/goods';
 import { likeAdd, likeRemove, collectAdd, collectRemove } from '../api/social';
 import Screen from '../components/Screen';
 import PrimaryButton from '../components/PrimaryButton';
@@ -28,6 +28,7 @@ import { readCachedUserInfo } from '../utils/userCache';
 import { resolveCurrentUserId } from '../utils/userId';
 import { markViewed } from '../utils/viewedTracker';
 import { isDeadlineExpired, renderDeadlineBadge } from '../utils/deadline';
+import { formatAuthorName } from '../utils/authorName';
 
 const EXT_GOODS = 4;
 
@@ -80,6 +81,7 @@ export default function GoodDetailScreen({ route }: any) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [wantBusy, setWantBusy] = useState(false);
+  const [orphanReqBusy, setOrphanReqBusy] = useState(false);
   const [imgViewerVisible, setImgViewerVisible] = useState(false);
   const [imgViewerIndex, setImgViewerIndex] = useState(0);
   const [galleryIndex, setGalleryIndex] = useState(0);
@@ -277,6 +279,40 @@ export default function GoodDetailScreen({ route }: any) {
     }
   };
 
+  /**
+   * 孤儿商品 "请求下架"——后端 bot 在原 QQ 群里 @ 卖家询问 "是不是已出"。
+   * 同 (caller, good) 1h 内只能请求 1 次（后端限流），失败时清限流锁让用户能重试。
+   * 详见 SKILL.md "孤儿旗下账号特殊行为"段。
+   */
+  const goRequestOffShelf = async () => {
+    if (!g) return;
+    Alert.alert(
+      '请求下架',
+      `机器人会去 QQ 群里 @ 卖家询问"是不是已出"；卖家回"是"即自动下架。1 小时内同一商品仅能请求 1 次。`,
+      [
+        { text: '取消', style: 'cancel' },
+        {
+          text: '请求下架',
+          onPress: async () => {
+            try {
+              setOrphanReqBusy(true);
+              await requestOffShelfFromOrphan(id);
+              Alert.alert('已发送', '机器人已去 QQ 群里 @ 卖家。等卖家回复即可。');
+            } catch (e: any) {
+              const msg = e?.message || '请求失败，请稍后再试';
+              const tail = g?.seller_qq_number
+                ? `\n\n备选：直接 QQ 联系 ${g.seller_qq_number}`
+                : '';
+              Alert.alert('请求失败', msg + tail);
+            } finally {
+              setOrphanReqBusy(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
   if (!g) {
     return (
       <Screen scroll={false}>
@@ -452,12 +488,31 @@ export default function GoodDetailScreen({ route }: any) {
         <Text style={styles.body}>{g.content}</Text>
         <View style={styles.seller}>
           <Text style={styles.sellerLabel}>{isHelp ? '发布者' : '卖家'}</Text>
-          <Text style={styles.sellerName}>{g.author?.username || '匿名'}</Text>
+          <Text style={styles.sellerName}>{formatAuthorName(g.author, '匿名')}</Text>
         </View>
         {isOwnGood ? (
           <Text style={styles.ownGoodHint}>
             {isHelp ? '这是你发布的求助' : '这是你发布的商品'}
           </Text>
+        ) : g.is_orphan_owner ? (
+          // 孤儿商品：发布人不在 app 里，无法下单聊天；引导走 QQ 私聊 + 提供"请求下架"
+          <View style={styles.orphanBlock}>
+            <View style={styles.orphanBanner}>
+              <Ionicons name="information-circle-outline" size={18} color={colors.primary} />
+              <Text style={styles.orphanBannerText}>
+                {isHelp
+                  ? `发布人通过 QQ ${g.seller_qq_number || ''} 联系；请直接 QQ 沟通`
+                  : `卖家通过 QQ ${g.seller_qq_number || ''} 联系；请直接 QQ 沟通`}
+              </Text>
+            </View>
+            <PrimaryButton
+              title="请求下架（已出）"
+              onPress={goRequestOffShelf}
+              loading={orphanReqBusy}
+              variant="outline"
+              style={styles.buy}
+            />
+          </View>
         ) : (
           <PrimaryButton
             title={isHelp ? '我来接' : '我想要'}
@@ -561,6 +616,21 @@ const styles = StyleSheet.create({
   sellerLabel: { fontSize: 13, color: colors.textMuted },
   sellerName: { fontSize: 15, fontWeight: '600', color: colors.primary },
   buy: { marginHorizontal: space.md, marginTop: 24 },
+  orphanBlock: { marginTop: 4 },
+  orphanBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: space.md,
+    marginTop: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: colors.primaryLight,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  orphanBannerText: { flex: 1, color: colors.text, fontSize: 13, lineHeight: 18 },
   ownGoodHint: {
     marginHorizontal: space.md,
     marginTop: 24,

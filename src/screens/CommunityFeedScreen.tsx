@@ -26,6 +26,7 @@ import { cacheGet, cacheSet } from '../utils/cacheStorage';
 import { useCommunityFeedMode } from '../context/CommunityFeedContext';
 import { PAGE_SIZE, mergeById, hasMorePages } from '../utils/pagination';
 import { markViewed, useViewedSet } from '../utils/viewedTracker';
+import { formatAuthorName } from '../utils/authorName';
 
 type FeedRow =
   | { k: 'post'; item: ArticleRow }
@@ -264,7 +265,7 @@ export default function CommunityFeedScreen({ navigation }: any) {
                 </Text>
               ) : null}
               <Text style={[styles.cardMeta, viewed && styles.viewedSubText]}>
-                {item.author?.username} · {item.like_count ?? 0} 赞
+                {formatAuthorName(item.author)} · {item.like_count ?? 0} 赞
                 {item.view_count != null ? ` · ${item.view_count} 浏览` : ''}
               </Text>
             </View>
@@ -303,7 +304,7 @@ export default function CommunityFeedScreen({ navigation }: any) {
               {item.content?.trim() || '（无正文）'}
             </Text>
             <Text style={[styles.cardMeta, viewed && styles.viewedSubText]}>
-              {item.author?.username ?? '用户'} · {item.like_count ?? 0} 赞
+              {formatAuthorName(item.author)} · {item.like_count ?? 0} 赞
             </Text>
           </View>
         </View>

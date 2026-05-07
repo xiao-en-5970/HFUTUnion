@@ -33,6 +33,7 @@ import LoadingMask from '../components/LoadingMask';
 import AnswerCommentsPanel from '../components/AnswerCommentsPanel';
 import { colors, radius, space } from '../theme/colors';
 import { markViewed } from '../utils/viewedTracker';
+import { formatAuthorName } from '../utils/authorName';
 
 const EXT_A = 3;
 
@@ -186,7 +187,7 @@ function AnswerSlide({
         ) : null}
 
         <Text style={slideStyles.meta}>
-          {answer.author?.username ?? '用户'} · {answer.like_count ?? 0} 赞 ·{' '}
+          {formatAuthorName(answer.author)} · {answer.like_count ?? 0} 赞 ·{' '}
           {answer.collect_count ?? 0} 藏 · {answer.comment_count ?? 0} 评
           {answer.view_count != null ? ` · ${answer.view_count} 浏览` : ''}
         </Text>

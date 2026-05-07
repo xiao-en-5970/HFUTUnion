@@ -6,7 +6,14 @@ export const EXT_TYPE_QUESTION = 2;
 export const EXT_TYPE_ANSWER = 3;
 export const EXT_TYPE_GOODS = 4;
 
-export type CommentAuthor = { id: number; username: string; avatar?: string };
+export type CommentAuthor = {
+  id: number;
+  username: string;
+  avatar?: string;
+  /** 仅当该评论作者为非孤儿 QQ 旗下号时，由后端 enrich 填入；前端用来拼"（来自用户 xxx）" */
+  from_user_id?: number;
+  from_username?: string;
+};
 
 export type CommentItem = {
   id: number;

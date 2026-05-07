@@ -14,6 +14,7 @@ import { Platform } from 'react-native';
 import type { NotificationItem } from '../api/notification';
 import { NOTIFY_TYPE } from '../api/notification';
 import { getNotifSettingsSync } from './notifSettings';
+import { formatAuthorName } from './authorName';
 
 type NotifeeModule = {
   default: {
@@ -110,7 +111,7 @@ function shouldPush(item: NotificationItem): boolean {
 }
 
 function titleFor(item: NotificationItem): string {
-  const name = item.from?.username || '某人';
+  const name = item.from ? formatAuthorName(item.from, '某人') : '某人';
   switch (item.type) {
     case NOTIFY_TYPE.LikeArticle:
       return `${name} 赞了你的作品`;

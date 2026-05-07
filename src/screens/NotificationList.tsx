@@ -21,6 +21,7 @@ import {
 } from '../api/notification';
 import { colors, radius, space } from '../theme/colors';
 import { useMessagesUnread } from '../context/MessagesUnreadContext';
+import { formatAuthorName } from '../utils/authorName';
 
 const PAGE_SIZE = 20;
 
@@ -56,7 +57,14 @@ function verbOf(n: NotificationItem): string {
  * 顶层评论与回复不聚合，count 恒为 1。
  */
 function formatActorPrefix(n: NotificationItem): string {
-  const fromName = n.from?.username || (n.type === NOTIFY_TYPE.Official ? '官方' : '');
+  const isOfficial = n.type === NOTIFY_TYPE.Official;
+  // 官方通知 from 可能为空 → 直接 "官方"；其它情况复用 formatAuthorName
+  // 拿到含"（来自用户 xxx）"的展示名
+  const fromName = isOfficial
+    ? n.from?.username || '官方'
+    : n.from
+      ? formatAuthorName(n.from)
+      : '';
   const count = n.count && n.count > 1 ? n.count : 1;
   if (count > 1) {
     return fromName ? `${fromName} 等 ${count} 人` : `${count} 人`;

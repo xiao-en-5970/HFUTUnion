@@ -25,6 +25,7 @@ import { fetchUserInfo } from '../api/user';
 import Screen from '../components/Screen';
 import PrimaryButton from '../components/PrimaryButton';
 import { colors, radius, space } from '../theme/colors';
+import { formatAuthorName } from '../utils/authorName';
 
 const PAGE_SIZE = 20;
 
@@ -120,7 +121,7 @@ export default function CommentRepliesScreen({ route, navigation }: any) {
 
   const handleReplyTo = (c: CommentItem) => {
     if (myId != null && c.user_id != null && Number(c.user_id) === myId) return;
-    setReplyTarget({ replyId: c.id, username: c.author?.username || '用户' });
+    setReplyTarget({ replyId: c.id, username: formatAuthorName(c.author) });
     inputRef.current?.focus();
   };
 
@@ -186,12 +187,12 @@ export default function CommentRepliesScreen({ route, navigation }: any) {
       style={styles.row}>
       <View style={styles.rowTop}>
         <Text style={styles.author}>
-          {item.author?.username || '用户'}
+          {formatAuthorName(item.author)}
           {item.reply_to_author ? (
             <Text style={styles.arrow}>
               {' \u25B8 '}
               <Text style={styles.targetUser}>
-                {item.reply_to_author.username}
+                {formatAuthorName(item.reply_to_author)}
               </Text>
             </Text>
           ) : null}

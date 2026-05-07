@@ -34,7 +34,13 @@ export type OrderRow = {
     /** 卖方用户 id */
     user_id?: number | null;
     /** 后端目前未返回，保留为兜底 */
-    author?: { id: number; username?: string; avatar?: string };
+    author?: {
+      id: number;
+      username?: string;
+      avatar?: string;
+      from_user_id?: number;
+      from_username?: string;
+    };
   };
   created_at?: string;
 };

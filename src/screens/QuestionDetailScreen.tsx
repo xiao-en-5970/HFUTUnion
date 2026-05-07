@@ -23,6 +23,7 @@ import SocialActionRow from '../components/SocialActionRow';
 import { colors, radius, space } from '../theme/colors';
 import { cacheGet, cacheSet } from '../utils/cacheStorage';
 import { markViewed } from '../utils/viewedTracker';
+import { formatAuthorName } from '../utils/authorName';
 
 const EXT_Q = 2;
 
@@ -265,7 +266,7 @@ export default function QuestionDetailScreen({ route, navigation }: any) {
           />
         </View>
         <Text style={styles.title}>{q.title}</Text>
-        <Text style={styles.meta}>{q.author?.username}</Text>
+        <Text style={styles.meta}>{formatAuthorName(q.author)}</Text>
         <Text style={styles.body}>{q.content}</Text>
         {q.images?.length ? (
           <View style={styles.images}>
@@ -296,7 +297,7 @@ export default function QuestionDetailScreen({ route, navigation }: any) {
               compact
             />
             <View style={styles.ansHead}>
-              <Text style={styles.ansAuthor}>{a.author?.username}</Text>
+              <Text style={styles.ansAuthor}>{formatAuthorName(a.author)}</Text>
             </View>
             <Text numberOfLines={3} style={styles.ansBody}>
               {a.content || a.title}

@@ -15,7 +15,14 @@ export type ArticleRow = {
   comment_count?: number;
   view_count?: number;
   created_at?: string;
-  author?: { id: number; username: string; avatar?: string };
+  author?: {
+    id: number;
+    username: string;
+    avatar?: string;
+    /** 仅当作者为非孤儿 QQ 旗下号时由后端 enrich 填入；前端用 formatAuthorName 拼"（来自用户 xxx）" */
+    from_user_id?: number;
+    from_username?: string;
+  };
   /** 后端若返回，用于同步点赞状态 */
   is_liked?: boolean;
   liked?: boolean;

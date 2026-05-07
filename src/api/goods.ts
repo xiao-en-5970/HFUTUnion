@@ -36,7 +36,14 @@ export type GoodRow = {
   status?: number;
   /** 发布者（卖家 / 求助方）用户 id */
   user_id?: number | null;
-  author?: { id: number; username: string; avatar?: string };
+  author?: {
+    id: number;
+    username: string;
+    avatar?: string;
+    /** 仅当作者为非孤儿 QQ 旗下号时由后端 enrich 填入；前端用 formatAuthorName 拼"（来自用户 xxx）" */
+    from_user_id?: number;
+    from_username?: string;
+  };
   view_count?: number;
   like_count?: number;
   collect_count?: number;
@@ -46,6 +53,15 @@ export type GoodRow = {
   collected?: boolean;
   /** 后端标记：当前用户是否跨设备看过本商品；与本地 viewedTracker 并集 */
   is_viewed?: boolean;
+  /**
+   * 商品发布人是孤儿 QQ 旗下号（没绑主账号）—— 该用户根本不在 app 里。
+   * 详见 QQ-bot/skill/bot/SKILL.md "孤儿旗下账号特殊行为"段。
+   * true 时前端：禁用 "我想要" / 下单流程；改为展示 "通过 QQ 联系：seller_qq_number"
+   * + "请求下架"按钮（POST /goods/:id/request-off-shelf）。
+   */
+  is_orphan_owner?: boolean;
+  /** 配合 is_orphan_owner 使用：孤儿卖家的 QQ 号（字符串）；前端展示用 */
+  seller_qq_number?: string;
   created_at?: string;
 };
 
@@ -143,6 +159,17 @@ export async function publishGood(id: number) {
 
 export async function offShelfGood(id: number) {
   return apiRequest<unknown>(`/goods/${id}/off-shelf`, { method: 'POST' });
+}
+
+/**
+ * 孤儿商品 "请求下架"——bot 在原群里 @ 卖家 QQ 询问 "是不是已出"。
+ * 同 (caller, good) 1h 内只能请求 1 次（后端限流）。详见 SKILL.md "孤儿旗下账号特殊行为"。
+ */
+export async function requestOffShelfFromOrphan(id: number) {
+  return apiRequest<unknown>(`/goods/${id}/request-off-shelf`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
 }
 
 /** GET /user/:id/goods — 本人可含下架商品 */

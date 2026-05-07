@@ -5,12 +5,18 @@ export type UserInfo = {
   username?: string;
   avatar?: string;
   background?: string;
-  bind_qq?: string;
-  bind_wx?: string;
-  bind_phone?: string;
   /** >0 表示已完成学籍认证绑定 */
   school_id?: number;
   school_name?: string;
+  /**
+   * 当前主账号绑定的 QQ 旗下账号 user_id。
+   * 后端在 /user/info 里返回（详见 vo/response.UserInfo + QQ-bot/skill/bot/SKILL.md
+   * "数据聚合 / 操作权限"段）；非零即表示当前主账号已挂着一个 QQ 旗下账号。
+   * 前端用来在 "QQ 认证" 页区分 已绑 / 未绑 状态。
+   */
+  qq_child_user_id?: number;
+  /** 已绑 QQ 号字符串展示用；当 qq_child_user_id > 0 时有值 */
+  qq_child_qq_number?: string;
 };
 
 export type SchoolItem = { id: number; name: string; code: string };
