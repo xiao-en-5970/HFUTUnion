@@ -9,18 +9,7 @@
  */
 export const API_BASE = 'https://api.xiaoen.xyz/api/v1';
 
-/**
- * app 内更新——OSS 上手动维护的版本元信息 JSON。
- *
- * 详见 hfut-front/APP-UPDATE.md 顶部的 JSON 格式说明。约定：
- *   - 启动时 GET 这个 URL，拿到 { version_name, version_code, apk_url, ... }
- *   - 跟本地 versionToCode(package.json::version) 对比，新就弹更新弹窗
- *   - 这个 URL 必须可以被未登录用户匿名访问（七牛默认公开 bucket 直接给）
- *
- * 设计取舍：之前做过后端 admin 上传接口的方案，撤回了。原因：
- *   - apk 30~80MB 容易撞上 nginx 上传体积上限（client_intended_to_send_too_large 413）
- *   - 学生项目维护成本：DB 表 + admin 中间件 + service + controller + 上传脚本
- *     不如直接七牛后台传 apk + 改 latest.json 来得实在
- */
-export const APP_RELEASE_INFO_URL =
-  'https://oss.xiaoen.xyz/app-release/android/latest.json';
+// app 内更新功能的 latest.json URL **不**写在这里——避免硬编码 OSS 基础设施到 JS bundle。
+// 前端通过 GET /api/v1/app/release-info-url 拿到该地址（后端环境变量 APP_RELEASE_INFO_URL 控制），
+// 想换 OSS / 关功能改后端配置即可，不需要重发前端。
+// 详见 src/api/appUpdate.ts。

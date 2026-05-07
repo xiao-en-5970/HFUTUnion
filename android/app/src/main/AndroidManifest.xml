@@ -16,6 +16,8 @@
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="32"
         tools:replace="android:maxSdkVersion" />
+    <!-- app 内更新——下载新 apk 后调起系统安装界面（PackageInstaller） -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
       android:name=".MainApplication"
@@ -39,5 +41,18 @@
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
       </activity>
+
+      <!-- app 内更新——FileProvider 把下载好的 apk file:// 转 content:// 给系统 PackageInstaller。
+           Android 7+ 不允许跨进程传 file://，必须走 FileProvider；
+           authority 跟 AppInfoModule.installApk 默认值保持一致：${applicationId}.fileprovider -->
+      <provider
+        android:name="androidx.core.content.FileProvider"
+        android:authorities="${applicationId}.fileprovider"
+        android:exported="false"
+        android:grantUriPermissions="true">
+        <meta-data
+          android:name="android.support.FILE_PROVIDER_PATHS"
+          android:resource="@xml/file_paths" />
+      </provider>
     </application>
 </manifest>

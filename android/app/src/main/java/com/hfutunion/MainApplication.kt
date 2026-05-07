@@ -14,8 +14,9 @@ class MainApplication : Application(), ReactApplication {
       context = applicationContext,
       packageList =
         PackageList(this).packages.apply {
-          // Packages that cannot be autolinked yet can be added manually here, for example:
-          // add(MyReactNativePackage())
+          // 自定义模块：暴露 BuildConfig.VERSION_NAME/CODE + 调起 apk 安装界面
+          // 详见 AppInfoModule.kt + AndroidManifest.xml provider 声明 + res/xml/file_paths.xml
+          add(AppInfoPackage())
         },
     )
   }

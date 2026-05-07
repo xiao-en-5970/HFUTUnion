@@ -1,7 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Alert,
-  Linking,
   Modal,
   ScrollView,
   StyleSheet,
@@ -12,6 +11,7 @@ import {
 import { colors, radius, space } from '../theme/colors';
 import PrimaryButton from './PrimaryButton';
 import { addIgnoredVersion, type UpdateCheckResult } from '../utils/appUpdate';
+import { apkDownload, type DownloadState } from '../utils/apkDownload';
 
 type Props = {
   /** 更新弹窗的版本元信息；为 null 时不渲染 Modal */
@@ -24,38 +24,54 @@ type Props = {
  * UpdateDialog 三按钮更新弹窗——给 App.tsx 顶层挂用。
  *
  * 业务规则：
- *   - "更新"：Linking.openURL(apkUrl) 跳系统浏览器下载安装；成功后关闭弹窗
+ *   - "更新"：触发 apkDownload.start()，弹窗内显示进度条；下载完成后按钮变为"立即安装"，
+ *     调起系统安装界面。下载过程中关掉弹窗也不影响下载——通知栏仍显示进度，可点击恢复。
  *   - "下次再说"：关闭弹窗，下次启动还会再弹（强制更新版本不显示这个按钮）
  *   - "忽略此版本"：把 versionCode 写进 AsyncStorage，下次启动如果服务器最新还是
  *      这个版本就不再弹（强制更新版本不显示这个按钮）
  *
  * 强制更新（force_update=true）时：
- *   - 只显示"更新"按钮
+ *   - 只显示"更新"/"立即安装"按钮
  *   - 没有右上角关闭、没有 Android back 关闭（onRequestClose 空实现）
  *   - 用户必须更新或杀进程
  */
 export default function UpdateDialog({ info, onClose }: Props) {
-  const [opening, setOpening] = useState(false);
+  const [dl, setDl] = useState<DownloadState>(() => apkDownload.getState());
+
+  useEffect(() => {
+    return apkDownload.subscribe(setDl);
+  }, []);
+
+  // 安装界面已被系统接管，弹窗自动关闭——避免用户回到 app 还看到老弹窗
+  useEffect(() => {
+    if (dl.status === 'installing') {
+      onClose();
+    }
+  }, [dl.status, onClose]);
+
   if (!info) return null;
 
   const { force_update: forceUpdate } = info;
+  const downloading = dl.status === 'downloading';
+  const finished = dl.status === 'finished';
+  const failed = dl.status === 'failed';
+  const cancelled = dl.status === 'cancelled';
 
   const onUpdate = async () => {
-    if (opening) return;
-    setOpening(true);
+    if (downloading) return;
+    if (finished) {
+      // 已下完，直接安装
+      await apkDownload.installNow();
+      return;
+    }
     try {
-      const ok = await Linking.canOpenURL(info.apk_url);
-      if (!ok) {
-        Alert.alert('打开失败', '当前系统未找到可用浏览器，请手动复制链接');
-        return;
-      }
-      await Linking.openURL(info.apk_url);
-      onClose();
+      await apkDownload.start({
+        url: info.apk_url,
+        versionName: info.version_name,
+      });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      Alert.alert('打开失败', msg || '请稍后再试');
-    } finally {
-      setOpening(false);
+      Alert.alert('下载失败', msg || '请稍后再试');
     }
   };
 
@@ -68,13 +84,33 @@ export default function UpdateDialog({ info, onClose }: Props) {
     onClose();
   };
 
+  const onCancelDownload = async () => {
+    await apkDownload.cancel();
+  };
+
+  const pct = Math.round((dl.ratio || 0) * 100);
+
+  // 主按钮文案 + loading 态
+  let primaryTitle: string;
+  if (downloading) {
+    primaryTitle = `下载中 ${pct}%`;
+  } else if (finished) {
+    primaryTitle = '立即安装';
+  } else if (failed) {
+    primaryTitle = '重试';
+  } else if (cancelled) {
+    primaryTitle = '重新下载';
+  } else {
+    primaryTitle = '更新';
+  }
+
   return (
     <Modal
       visible={true}
       transparent
       animationType="fade"
       onRequestClose={() => {
-        if (!forceUpdate) onClose();
+        if (!forceUpdate && !downloading) onClose();
       }}>
       <View style={styles.overlay}>
         <View style={styles.dialog}>
@@ -108,14 +144,53 @@ export default function UpdateDialog({ info, onClose }: Props) {
             </View>
           ) : null}
 
+          {/* 下载进度条——仅在 downloading 时显示 */}
+          {downloading ? (
+            <View style={styles.progressBox}>
+              <View style={styles.progressBar}>
+                <View
+                  style={[
+                    styles.progressFill,
+                    {
+                      width: `${
+                        dl.contentLength > 0 ? Math.max(2, pct) : 0
+                      }%`,
+                    },
+                  ]}
+                />
+              </View>
+              <Text style={styles.progressText}>
+                {dl.contentLength > 0
+                  ? `${pct}% · ${formatSize(dl.bytesWritten)} / ${formatSize(
+                      dl.contentLength,
+                    )}`
+                  : '准备下载...'}
+              </Text>
+            </View>
+          ) : null}
+
+          {/* 失败提示 */}
+          {failed && dl.errorMessage ? (
+            <View style={styles.errorBox}>
+              <Text style={styles.errorText}>下载失败：{dl.errorMessage}</Text>
+            </View>
+          ) : null}
+
           <View style={styles.actions}>
             <PrimaryButton
-              title={opening ? '正在打开浏览器...' : '更新'}
+              title={primaryTitle}
               onPress={onUpdate}
-              loading={opening}
+              loading={downloading}
               style={styles.actionBtn}
             />
-            {!forceUpdate ? (
+            {downloading ? (
+              <TouchableOpacity
+                onPress={onCancelDownload}
+                style={[styles.secondaryBtn, styles.secondaryBtnFull]}
+                activeOpacity={0.7}>
+                <Text style={styles.secondaryText}>取消下载</Text>
+              </TouchableOpacity>
+            ) : !forceUpdate ? (
               <View style={styles.secondaryRow}>
                 <TouchableOpacity
                   onPress={onLater}
@@ -136,6 +211,13 @@ export default function UpdateDialog({ info, onClose }: Props) {
       </View>
     </Modal>
   );
+}
+
+function formatSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0B';
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
 
 const styles = StyleSheet.create({
@@ -213,6 +295,38 @@ const styles = StyleSheet.create({
     color: colors.accent,
     textAlign: 'center',
   },
+  progressBox: {
+    marginBottom: space.md,
+  },
+  progressBar: {
+    height: 6,
+    backgroundColor: colors.bg,
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: colors.primary,
+    borderRadius: 3,
+  },
+  progressText: {
+    marginTop: 6,
+    fontSize: 12,
+    color: colors.textSecondary,
+    textAlign: 'center',
+  },
+  errorBox: {
+    backgroundColor: '#FEF2F2',
+    borderRadius: radius.sm,
+    paddingVertical: space.sm,
+    paddingHorizontal: space.md,
+    marginBottom: space.md,
+  },
+  errorText: {
+    fontSize: 13,
+    color: colors.danger,
+    textAlign: 'center',
+  },
   actions: {
     marginTop: space.xs,
   },
@@ -231,6 +345,10 @@ const styles = StyleSheet.create({
   secondaryBtnLeft: {
     borderRightWidth: StyleSheet.hairlineWidth,
     borderRightColor: colors.border,
+  },
+  secondaryBtnFull: {
+    flex: undefined,
+    width: '100%',
   },
   secondaryText: {
     fontSize: 14,

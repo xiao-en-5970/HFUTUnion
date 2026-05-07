@@ -1,36 +1,39 @@
 /**
- * app 内更新功能 —— 直接从 OSS 拉手动维护的版本元信息 JSON。
+ * app 内更新功能 —— 两段式拉取：
  *
- * 之前用过"后端 admin 接口上传 apk"方案，撤回了；详见 src/config.ts 注释。
+ *   1. GET /api/v1/app/release-info-url       (后端公开接口，无需 JWT)
+ *      → { url: "https://oss.xiaoen.xyz/app-release/android/latest.json" | "" }
+ *      url 为空时表示功能关闭，前端跳过更新检查。
+ *
+ *   2. GET <url>                              (OSS / GitHub Release / 任意 CDN)
+ *      → { version_name, version_code, apk_url, release_notes?, force_update? }
+ *
+ * 这样换 OSS / 切到 GitHub Release / 紧急下线"更新弹窗"功能都靠后端环境变量控制，
+ * 不需要重发前端。
  *
  * OSS JSON 契约（详见 hfut-front/APP-UPDATE.md）：
  *
- *   GET https://oss.xiaoen.xyz/app-release/android/latest.json
- *     -> {
- *          "version_name":  "1.0.5",
- *          "version_code":  10005,
- *          "apk_url":       "https://oss.xiaoen.xyz/app-release/android/HFUTUnion-1.0.5.apk",
- *          "release_notes": "支持 app 内更新检查",
- *          "force_update":  false
- *        }
+ *   {
+ *     "version_name":  "1.0.5",
+ *     "version_code":  10005,
+ *     "apk_url":       "https://oss.xiaoen.xyz/app-release/android/HFUTUnion-1.0.5.apk",
+ *     "release_notes": "支持 app 内更新检查",
+ *     "force_update":  false
+ *   }
  *
  * 字段说明：
  *   - version_name: 语义版本号字符串，前端展示用
  *   - version_code: 整数版本号；前端比对用，必须跟 build.gradle::versionCode 一致
  *                   （build-apk.sh 自动算 X*10000 + Y*100 + Z）
- *   - apk_url:      apk 完整 URL；前端 Linking.openURL 跳浏览器下载
+ *   - apk_url:      apk 完整 URL；前端 Linking.openURL 跳浏览器下载（任意公开链接均可）
  *   - release_notes: 发布说明，纯文本或 markdown
  *   - force_update: true 时弹窗禁用"下次再说/忽略"按钮
  *
- * platform 字段不再由 JSON 给——改由 URL 路径区分（android/latest.json）；
- * 前端只 fetch 自己平台对应的 URL 即可。
- *
  * 兼容性：
- *   - 文件不存在时（404）返 null（首次部署 OSS 还没传文件是合理状态）
- *   - 其他网络/解析异常静默吞，下次启动再试
+ *   - 后端接口挂 / 返回空 url / OSS JSON 404 / 字段缺失 都返 null（不打扰主流程）
  */
 
-import { APP_RELEASE_INFO_URL } from '../config';
+import { apiRequest } from './client';
 
 export type AppLatestVersion = {
   version_name: string;
@@ -40,16 +43,40 @@ export type AppLatestVersion = {
   force_update: boolean;
 };
 
+/** 后端 /app/release-info-url 接口返回体。 */
+type ReleaseInfoURLResp = {
+  url: string;
+};
+
 /**
- * 从 OSS 拉最新版本元信息。
+ * 拉最新版本元信息——先拿 OSS URL，再 fetch JSON。
  *
- * 加 ?_=<ts> cache-buster 是为了对抗七牛 / 浏览器层的 HTTP 缓存——
- * latest.json 改了之后 CDN 边缘节点可能仍是旧版，加时间戳强制走源站。
- *
- * 失败 / 404 都返 null（按"无更新"处理），不抛异常打扰主流程。
+ * 任意一步失败都返 null（按"无更新"处理），不抛异常。
  */
 export async function fetchAppLatestVersion(): Promise<AppLatestVersion | null> {
-  const url = `${APP_RELEASE_INFO_URL}?_=${Date.now()}`;
+  // 第一步：找后端要 OSS URL
+  let infoURL = '';
+  try {
+    const resp = await apiRequest<ReleaseInfoURLResp>('/app/release-info-url', {
+      skipAuth: true,
+    });
+    infoURL = (resp?.url ?? '').trim();
+  } catch (e) {
+    if (__DEV__) {
+      console.warn('[appUpdate] /app/release-info-url 失败', e);
+    }
+    return null;
+  }
+  if (!infoURL) {
+    // 后端把功能关了（环境变量 APP_RELEASE_INFO_URL 设为空）；按设计静默
+    return null;
+  }
+
+  // 第二步：fetch OSS 上的 JSON
+  // 加 ?_=<ts> cache-buster 是为了对抗七牛 / 浏览器层的 HTTP 缓存——
+  // latest.json 改了之后 CDN 边缘节点可能仍是旧版，加时间戳强制走源站。
+  const sep = infoURL.includes('?') ? '&' : '?';
+  const url = `${infoURL}${sep}_=${Date.now()}`;
   let res: Response;
   try {
     res = await fetch(url, { method: 'GET' });

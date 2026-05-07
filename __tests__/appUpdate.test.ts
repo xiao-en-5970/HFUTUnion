@@ -20,6 +20,15 @@ jest.mock('../src/api/appUpdate', () => ({
   fetchAppLatestVersion: jest.fn().mockResolvedValue(null),
 }));
 
+jest.mock('../src/native/appInfo', () => ({
+  __esModule: true,
+  getNativeVersionName: jest.fn(() => '0.0.0'),
+  getNativeVersionCode: jest.fn(() => 0),
+  installApk: jest.fn(),
+  openInstallPermissionSettings: jest.fn(),
+  isAppInfoReady: jest.fn(() => false),
+}));
+
 import { versionToCode } from '../src/utils/appUpdate';
 
 describe('appUpdate utils', () => {

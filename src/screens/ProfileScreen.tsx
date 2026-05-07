@@ -21,6 +21,7 @@ import Screen from '../components/Screen';
 import { colors, radius, space } from '../theme/colors';
 import { useMessagesUnread } from '../context/MessagesUnreadContext';
 import { useNotifSettings } from '../utils/notifSettings';
+import { getNativeVersionName } from '../native/appInfo';
 
 const defaultAvatar = require('../assets/default-avatar.png');
 const defaultBg = require('../assets/default-bg.jpg');
@@ -285,6 +286,8 @@ export default function ProfileScreen() {
             <Text style={[styles.menuLabel, { color: colors.danger }]}>退出登录</Text>
           </TouchableOpacity>
         </View>
+
+        <Text style={styles.versionText}>当前版本 v{getNativeVersionName()}</Text>
       </ScrollView>
 
       <ImageViewing
@@ -407,4 +410,10 @@ const styles = StyleSheet.create({
   msgBadgeText: { color: '#fff', fontSize: 11, fontWeight: '700' },
   header: { position: 'absolute', top: 50, right: 20, zIndex: 10 },
   changeText: { color: '#fff', fontSize: 16 },
+  versionText: {
+    marginTop: space.lg,
+    fontSize: 12,
+    color: colors.textMuted,
+    textAlign: 'center',
+  },
 });

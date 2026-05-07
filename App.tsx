@@ -8,6 +8,7 @@ import { fetchUserInfo } from './src/api/user';
 import { writeCachedUserInfo } from './src/utils/userCache';
 import UpdateDialog from './src/components/UpdateDialog';
 import { checkForUpdate, type UpdateCheckResult } from './src/utils/appUpdate';
+import { registerApkNotificationHandlers } from './src/utils/apkNotificationHandlers';
 
 export default function App() {
   const isDarkMode = useColorScheme() === 'dark';
@@ -48,6 +49,13 @@ export default function App() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  // 注册 notifee 通知点击监听——下载完成的通知点击后触发 installApk。
+  // 必须在顶层 mount 一次（onForegroundEvent 返回 unsubscribe 函数）；
+  // onBackgroundEvent 也必须在 import 时同步注册（详见 apkNotificationHandlers.ts 注释）。
+  useEffect(() => {
+    return registerApkNotificationHandlers();
   }, []);
 
   return (

@@ -7,10 +7,11 @@
  *      - null  → 无更新（或网络挂、或当前已最新、或被忽略）；不弹
  *      - obj   → 弹 UpdateDialog
  *
- *   2. 当前版本号读法：从 package.json::version 字段（语义版本号字符串），
- *      转成整数 versionCode 跟服务端比。这样不依赖 react-native-device-info 等
- *      原生模块；前提是 build-apk.sh 已把 package.json::version 跟
- *      android/build.gradle versionName 同步。
+ *   2. 当前版本号读法：从 Android 原生 BuildConfig.VERSION_NAME / VERSION_CODE 读
+ *      （详见 src/native/appInfo.ts + AppInfoModule.kt）。
+ *      **不**用 package.json::version——那是源码字段，存在跟实际 apk 错位的风险
+ *      （例如 build 时 package.json 没及时同步、metro bundle 缓存命中旧版）。
+ *      BuildConfig 是 gradle 编译时生成的常量，跟 apk 一一对应，不会错。
  *
  *   3. "忽略此版本"语义：用户点忽略后，AsyncStorage 记录这个 versionCode；
  *      后续启动如果 OSS 最新版本 == 已忽略的 versionCode，不再弹（高于的话还会弹）。
@@ -30,7 +31,10 @@ import {
   fetchAppLatestVersion,
   type AppLatestVersion,
 } from '../api/appUpdate';
-import pkg from '../../package.json';
+import {
+  getNativeVersionCode,
+  getNativeVersionName,
+} from '../native/appInfo';
 
 const IGNORED_VERSIONS_KEY = 'app_update_ignored_versions';
 
@@ -42,6 +46,8 @@ const IGNORED_VERSIONS_KEY = 'app_update_ignored_versions';
  *   - 末尾带 -alpha / -rc1 / +meta 等后缀的，丢掉再算
  *   - 段不够 3 个的补 0（比如 "1.2" → 1.2.0）
  *   - 解析失败返 0（调用方按"不弹更新"处理）
+ *
+ * 仍然导出（而不是只内部用）——给 latest.json 维护方做版本号校验时方便复用。
  */
 export function versionToCode(version: string): number {
   if (!version) return 0;
@@ -53,14 +59,14 @@ export function versionToCode(version: string): number {
   return x * 10000 + y * 100 + z;
 }
 
-/** 当前 app 的语义版本号——从 package.json 读，build-apk.sh 已同步该字段。 */
+/** 当前 app 的语义版本号——直接读 Android BuildConfig.VERSION_NAME。 */
 export function getCurrentVersionName(): string {
-  return (pkg as { version?: string }).version ?? '0.0.0';
+  return getNativeVersionName();
 }
 
-/** 当前 app 的整数版本号——versionToCode(package.json::version)。 */
+/** 当前 app 的整数版本号——直接读 Android BuildConfig.VERSION_CODE，不再用 versionToCode 推算。 */
 export function getCurrentVersionCode(): number {
-  return versionToCode(getCurrentVersionName());
+  return getNativeVersionCode();
 }
 
 /** 读忽略列表；解析失败返空数组（不阻断启动）。 */
