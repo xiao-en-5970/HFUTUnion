@@ -169,7 +169,9 @@ export async function offShelfGood(id: number) {
 }
 
 /**
- * 孤儿商品请求下架：bot 在群里 @ 卖家问「标题」是否已出（是/不是）。
+ * 孤儿商品请求下架：bot 在群里 @ 发布者按 category 分支问「是」/「不是」：
+ *   - cat=1（二手）→ "「标题」已经出了吗？"
+ *   - cat=2（求物品）→ "「标题」是否已经求得该物品？"
  * 同 (caller, good) 1h 内只能请求 1 次（后端限流）。详见 SKILL.md "孤儿旗下账号特殊行为"。
  */
 export async function requestOffShelfFromOrphan(id: number) {

@@ -281,13 +281,18 @@ export default function GoodDetailScreen({ route }: any) {
   };
 
   /**
-   * 孤儿商品：bot 在 QQ 群 @ 卖家问是否已出（是/不是）。同商品 1h 限 1 次。
+   * 孤儿商品：bot 在 QQ 群 @ 发布者按 category 询问（cat=1 问"已出"/ cat=2 问"已求得"）。
+   * 同商品 1h 限 1 次。
    */
   const goRequestOffShelf = async () => {
     if (!g) return;
+    const askCat2 = g.goods_category === 2;
+    const promptBody = askCat2
+      ? '帮你在群里 @ 发布者问"是否已经求得该物品"（请答是或不是）。同一项 1 小时内只能请求 1 次。'
+      : '帮你在群里 @ 卖家问"是否已经出了"（请答是或不是）。同一项 1 小时内只能请求 1 次。';
     Alert.alert(
       '请求下架',
-      `帮你在群里 @ 卖家问是否已出（请答是或不是）。同一商品 1 小时内只能请求 1 次。`,
+      promptBody,
       [
         { text: '取消', style: 'cancel' },
         {
@@ -516,7 +521,7 @@ export default function GoodDetailScreen({ route }: any) {
               </Text>
             </View>
             <PrimaryButton
-              title="请求下架（已出）"
+              title="请求下架"
               onPress={goRequestOffShelf}
               loading={orphanReqBusy}
               variant="outline"
