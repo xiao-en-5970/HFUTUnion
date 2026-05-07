@@ -281,15 +281,13 @@ export default function GoodDetailScreen({ route }: any) {
   };
 
   /**
-   * 孤儿商品 "请求下架"——后端 bot 在原 QQ 群里 @ 卖家询问 "是不是已出"。
-   * 同 (caller, good) 1h 内只能请求 1 次（后端限流），失败时清限流锁让用户能重试。
-   * 详见 SKILL.md "孤儿旗下账号特殊行为"段。
+   * 孤儿商品：bot 在 QQ 群 @ 卖家问是否已出（是/不是）。同商品 1h 限 1 次。
    */
   const goRequestOffShelf = async () => {
     if (!g) return;
     Alert.alert(
       '请求下架',
-      `机器人会去 QQ 群里 @ 卖家询问"是不是已出"；卖家回"是"即自动下架。1 小时内同一商品仅能请求 1 次。`,
+      `帮你在群里 @ 卖家问是否已出（请答是或不是）。同一商品 1 小时内只能请求 1 次。`,
       [
         { text: '取消', style: 'cancel' },
         {
@@ -298,7 +296,7 @@ export default function GoodDetailScreen({ route }: any) {
             try {
               setOrphanReqBusy(true);
               await requestOffShelfFromOrphan(id);
-              Alert.alert('已发送', '机器人已去 QQ 群里 @ 卖家。等卖家回复即可。');
+              Alert.alert('已发送', '已通知卖家，请在 QQ 留意回复。');
             } catch (e: any) {
               const msg = e?.message || '请求失败，请稍后再试';
               const tail = g?.seller_qq_number
