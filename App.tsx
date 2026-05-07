@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { StatusBar, useColorScheme } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -6,9 +6,13 @@ import Navigation from './src/navigation';
 import { getToken } from './src/api/client';
 import { fetchUserInfo } from './src/api/user';
 import { writeCachedUserInfo } from './src/utils/userCache';
+import UpdateDialog from './src/components/UpdateDialog';
+import { checkForUpdate, type UpdateCheckResult } from './src/utils/appUpdate';
 
 export default function App() {
   const isDarkMode = useColorScheme() === 'dark';
+  // 弹窗状态：null=不弹；非 null=弹（详见 utils/appUpdate.ts::checkForUpdate）
+  const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -31,6 +35,21 @@ export default function App() {
     };
   }, []);
 
+  // 启动后异步检查 app 更新——不依赖登录态、不阻塞导航；
+  // 失败静默吞掉（详见 utils/appUpdate.ts 顶部注释）
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const info = await checkForUpdate();
+      if (!cancelled) {
+        setUpdateInfo(info);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
@@ -39,6 +58,10 @@ export default function App() {
           backgroundColor={isDarkMode ? '#000' : '#fff'}
         />
         <Navigation />
+        <UpdateDialog
+          info={updateInfo}
+          onClose={() => setUpdateInfo(null)}
+        />
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
