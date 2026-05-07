@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  FileProvider 路径白名单——AppInfoModule.installApk 时通过 FileProvider 把
+  下载好的 apk 文件转成 content:// URI 给系统 PackageInstaller。
+
+  路径含义：
+    cache-path           映射 context.getCacheDir()，对应 RNFS.CachesDirectoryPath
+    external-files-path  映射 context.getExternalFilesDir(null)，对应 RNFS.ExternalDirectoryPath
+    files-path           映射 context.getFilesDir()，对应 RNFS.DocumentDirectoryPath
+
+  下载策略（utils/apkDownload.ts）默认下到 RNFS.CachesDirectoryPath，
+  应用卸载后自动清理；想保留可改 ExternalFilesDir。
+
+  详见 https://developer.android.com/reference/androidx/core/content/FileProvider
+-->
+<paths>
+    <cache-path
+        name="apk_cache"
+        path="apk/" />
+    <external-files-path
+        name="apk_external"
+        path="apk/" />
+    <files-path
+        name="apk_files"
+        path="apk/" />
+</paths>
