@@ -1,16 +1,10 @@
 /**
- * QQ 认证页：把"编辑资料"位置替换为本页（详见 QQ-bot/skill/bot/SKILL.md
- * "QQ 旗下账号" + "数据聚合 / 操作权限"段）。
+ * QQ 认证页（一页两态）。详见 QQ-bot/skill/bot/SKILL.md "QQ 旗下账号"。
  *
- * 一页两态：
- *   - 未绑：先校验已绑学校 → 输入 QQ → 调 request-code → 输入 6 位验证码 → 调 confirm
- *   - 已绑：显示当前 QQ → "解绑"按钮 → 调 unbind/request-code → 输入解绑码 → 调 unbind/confirm
+ *   未绑：输 QQ → request-code → 输 6 位码 → confirm
+ *   已绑：显示当前 QQ → 解绑 → unbind/request-code → 输码 → unbind/confirm
  *
- * 错误处理：
- *   429 + retry_after_seconds → "已达限流，X 秒后重试"按钮倒计时
- *   4291 → "已锁定（5 次错误），X 分钟后再试"
- *   404 (bot 不是好友) → 展开提示 "请先在 QQ 添加机器人好友再回来认证"
- *   400 / 502 → 直接展示后端 message
+ * 错误：429/4291 倒计时；404 提示加好友；400/502 直接显后端 message。
  */
 import React, {
   useCallback,
@@ -150,8 +144,8 @@ export default function QQBindScreen() {
         }
         if (e.code === 404) {
           Alert.alert(
-            '机器人尚未加好友',
-            `${msg}\n\n请先用本人 QQ 把机器人加为好友（或在共同 QQ 群里发一条消息触达机器人），再回来认证。`,
+            '机器人未加好友',
+            `${msg}\n\n先加机器人为好友（或在共同 QQ 群发一条消息），再回来`,
           );
           return;
         }
@@ -165,7 +159,7 @@ export default function QQBindScreen() {
   const onSendBindCode = useCallback(async () => {
     const qq = qqInput.trim();
     if (!/^[1-9]\d{4,11}$/.test(qq)) {
-      Alert.alert('QQ 号格式错', '请输入 5~12 位纯数字 QQ 号');
+      Alert.alert('QQ 号格式错', '5~12 位纯数字');
       return;
     }
     try {
@@ -174,7 +168,7 @@ export default function QQBindScreen() {
       setPhase('code');
       setCode('');
       startCooldown(Math.max(1, Math.min(data.ttl_seconds || 0, DEFAULT_RESEND_COOLDOWN_SEC)));
-      Alert.alert('已发送', `验证码已通过机器人私聊发到 QQ ${qq}，请打开 QQ 查收（${data.ttl_seconds || 300} 秒内有效）`);
+      Alert.alert('已发送', `验证码已私聊发到 QQ ${qq}（${data.ttl_seconds || 300} 秒有效）`);
     } catch (e) {
       showApiError(e, '发送失败');
     } finally {
@@ -186,13 +180,13 @@ export default function QQBindScreen() {
   const onConfirmBind = useCallback(async () => {
     const c = code.trim();
     if (!/^\d{6}$/.test(c)) {
-      Alert.alert('验证码格式错', '请输入 QQ 收到的 6 位数字验证码');
+      Alert.alert('验证码格式错', '6 位数字');
       return;
     }
     try {
       setSubmitting(true);
       await qqBindConfirm(qqInput.trim(), c);
-      Alert.alert('认证成功', `QQ ${qqInput.trim()} 已绑定到当前账号`);
+      Alert.alert('已认证', `QQ ${qqInput.trim()} 已绑定`);
       // 重置表单 + 拉最新用户信息（让 isBound 切到已绑视图）
       setPhase('input');
       setQqInput('');
@@ -210,8 +204,8 @@ export default function QQBindScreen() {
   // ------------------------- 已绑：发送解绑码 -------------------------
   const onSendUnbindCode = useCallback(async () => {
     Alert.alert(
-      '解绑确认',
-      `解绑后你将不再继承 QQ ${boundQQ} 在群里发布的内容（仍保留为孤儿账号资源，未来再绑回会重新归属）。继续？`,
+      '确认解绑',
+      '解绑后会暂时丢失 QQ 关联数据',
       [
         { text: '取消', style: 'cancel' },
         {
@@ -224,7 +218,7 @@ export default function QQBindScreen() {
               setPhase('code');
               setCode('');
               startCooldown(Math.max(1, Math.min(data.ttl_seconds || 0, DEFAULT_RESEND_COOLDOWN_SEC)));
-              Alert.alert('已发送', `解绑验证码已通过机器人私聊发到 QQ ${boundQQ}`);
+              Alert.alert('已发送', `解绑码已私聊发到 QQ ${boundQQ}`);
             } catch (e) {
               showApiError(e, '发送失败');
             } finally {
@@ -240,13 +234,13 @@ export default function QQBindScreen() {
   const onConfirmUnbind = useCallback(async () => {
     const c = code.trim();
     if (!/^\d{6}$/.test(c)) {
-      Alert.alert('验证码格式错', '请输入 QQ 收到的 6 位数字解绑验证码');
+      Alert.alert('验证码格式错', '6 位数字');
       return;
     }
     try {
       setSubmitting(true);
       await qqUnbindConfirm(c);
-      Alert.alert('已解绑', `当前账号已解除与 QQ ${boundQQ} 的关联`);
+      Alert.alert('已解绑', `已解除与 QQ ${boundQQ} 的绑定`);
       setPhase('input');
       setCode('');
       if (cooldownTimer.current) clearInterval(cooldownTimer.current);
@@ -266,9 +260,7 @@ export default function QQBindScreen() {
       return (
         <View style={[styles.banner, styles.bannerWarn]}>
           <Ionicons name="alert-circle-outline" size={18} color={colors.accent} />
-          <Text style={styles.bannerText}>
-            QQ 认证前需先完成学籍认证。先去绑学校，再回来。
-          </Text>
+          <Text style={styles.bannerText}>先绑学校，再来 QQ 认证</Text>
         </View>
       );
     }
@@ -276,18 +268,14 @@ export default function QQBindScreen() {
       return (
         <View style={[styles.banner, styles.bannerOk]}>
           <Ionicons name="shield-checkmark" size={18} color="#047857" />
-          <Text style={styles.bannerText}>
-            已认证 QQ {boundQQ}
-          </Text>
+          <Text style={styles.bannerText}>已认证 QQ {boundQQ}</Text>
         </View>
       );
     }
     return (
       <View style={[styles.banner, styles.bannerInfo]}>
         <Ionicons name="information-circle-outline" size={18} color={colors.primary} />
-        <Text style={styles.bannerText}>
-          认证后你在 QQ 群里通过机器人发的内容会归属到当前账号
-        </Text>
+        <Text style={styles.bannerText}>认证后 QQ 群里发的内容自动归属本账号</Text>
       </View>
     );
   }, [loadingUser, hasSchool, isBound, boundQQ]);
@@ -300,7 +288,7 @@ export default function QQBindScreen() {
           <Text style={styles.title}>QQ 认证</Text>
           {stateBanner}
           <PrimaryButton
-            title="去完成学籍认证"
+            title="去绑学校"
             onPress={() => navigation.navigate('SchoolBind')}
             style={{ marginTop: space.md }}
           />
@@ -331,7 +319,7 @@ export default function QQBindScreen() {
           {/* 未绑 + 输入 QQ 阶段 */}
           {!isBound && phase === 'input' ? (
             <>
-              <Text style={styles.label}>你的 QQ 号</Text>
+              <Text style={styles.label}>QQ 号</Text>
               <TextInput
                 style={styles.input}
                 placeholder="如 12345678"
@@ -343,11 +331,10 @@ export default function QQBindScreen() {
                 editable={!submitting}
               />
               <Text style={styles.hint}>
-                点击下方"发送验证码"后，机器人会用 QQ 私聊把 6 位验证码发到上方 QQ；
-                请确保已添加机器人为好友
+                机器人会私聊把 6 位验证码发到该 QQ，需先加机器人为好友
               </Text>
               <PrimaryButton
-                title={cooldown > 0 ? `请 ${cooldown} 秒后再试` : '发送验证码'}
+                title={cooldown > 0 ? `${cooldown}s 后重试` : '发送验证码'}
                 onPress={onSendBindCode}
                 loading={submitting}
                 disabled={submitting || cooldown > 0 || !qqInput}
@@ -359,7 +346,7 @@ export default function QQBindScreen() {
           {/* 未绑 + 输入验证码阶段 */}
           {!isBound && phase === 'code' ? (
             <>
-              <Text style={styles.label}>QQ {qqInput} 收到的验证码</Text>
+              <Text style={styles.label}>验证码</Text>
               <TextInput
                 style={styles.input}
                 placeholder="6 位数字"
@@ -377,7 +364,7 @@ export default function QQBindScreen() {
                     setCode('');
                   }}
                   disabled={submitting}>
-                  <Text style={styles.actionLink}>换个 QQ 号</Text>
+                  <Text style={styles.actionLink}>换号</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   onPress={onSendBindCode}
@@ -387,12 +374,12 @@ export default function QQBindScreen() {
                       styles.actionLink,
                       (submitting || cooldown > 0) && styles.actionDisabled,
                     ]}>
-                    {cooldown > 0 ? `重发（${cooldown}s）` : '重新发送'}
+                    {cooldown > 0 ? `重发 ${cooldown}s` : '重发'}
                   </Text>
                 </TouchableOpacity>
               </View>
               <PrimaryButton
-                title="确认认证"
+                title="确认"
                 onPress={onConfirmBind}
                 loading={submitting}
                 disabled={submitting || code.length !== 6}
@@ -405,11 +392,10 @@ export default function QQBindScreen() {
           {isBound && phase === 'input' ? (
             <>
               <Text style={styles.hint}>
-                解绑前的所有内容（商品 / 帖子 / 订单）会保留为可绑回的孤儿数据；
-                同一主账号只能绑一个 QQ，要换需先解绑
+                解绑后已发布内容会保留为孤儿，可绑回时归属。每账号只能绑 1 个 QQ
               </Text>
               <PrimaryButton
-                title={cooldown > 0 ? `请 ${cooldown} 秒后再试` : '解绑当前 QQ'}
+                title={cooldown > 0 ? `${cooldown}s 后重试` : '解绑'}
                 onPress={onSendUnbindCode}
                 loading={submitting}
                 disabled={submitting || cooldown > 0}
@@ -421,7 +407,7 @@ export default function QQBindScreen() {
           {/* 已绑 + 输入解绑码阶段 */}
           {isBound && phase === 'code' ? (
             <>
-              <Text style={styles.label}>QQ {boundQQ} 收到的解绑验证码</Text>
+              <Text style={styles.label}>解绑验证码</Text>
               <TextInput
                 style={styles.input}
                 placeholder="6 位数字"
@@ -449,7 +435,7 @@ export default function QQBindScreen() {
                       styles.actionLink,
                       (submitting || cooldown > 0) && styles.actionDisabled,
                     ]}>
-                    {cooldown > 0 ? `重发（${cooldown}s）` : '重新发送'}
+                    {cooldown > 0 ? `重发 ${cooldown}s` : '重发'}
                   </Text>
                 </TouchableOpacity>
               </View>
