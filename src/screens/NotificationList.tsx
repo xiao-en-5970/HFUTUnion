@@ -88,7 +88,7 @@ function kindLabelOf(n: NotificationItem): string {
     case TARGET_EXT.Post:
       return '帖子';
     case TARGET_EXT.Question:
-      return '提问';
+      return '求解答';
     case TARGET_EXT.Answer:
       return '回答';
     case TARGET_EXT.Goods:

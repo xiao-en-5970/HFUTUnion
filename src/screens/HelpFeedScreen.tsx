@@ -24,11 +24,12 @@ import { PAGE_SIZE, mergeById, hasMorePages } from '../utils/pagination';
 import { formatAuthorName } from '../utils/authorName';
 import { markViewed, useViewedSet } from '../utils/viewedTracker';
 import { renderDeadlineBadge, isDeadlineExpired } from '../utils/deadline';
+import { formatGoodPrice } from '../utils/goodPrice';
 
 /**
  * 「求助」页混排：
- *   - Q = 文字提问（articles.type=2）
- *   - G = 有偿求助（goods.goods_category=2）
+ *   - Q = 求解答（articles.type=2，原"提问"）
+ *   - G = 求物品（goods.goods_category=2，原"有偿求助"）
  * 排序策略：两侧都走后端推荐流，客户端用 1:1 interleave；
  *   下拉刷新视作新一轮个性化排序（清空 refresh_token 重新开）。
  */
@@ -51,9 +52,6 @@ function interleave(qs: ArticleRow[], gs: GoodRow[]): Row[] {
   return out;
 }
 
-function fmtPrice(cents: number): string {
-  return `¥${(cents / 100).toFixed(2)}`;
-}
 
 export default function HelpFeedScreen() {
   const navigation = useNavigation<any>();
@@ -219,7 +217,7 @@ export default function HelpFeedScreen() {
           }}>
           <View style={styles.tagRow}>
             <View style={[styles.tag, styles.tagQuestion]}>
-              <Text style={styles.tagText}>提问</Text>
+              <Text style={styles.tagText}>求解答</Text>
             </View>
           </View>
           <Text
@@ -257,8 +255,13 @@ export default function HelpFeedScreen() {
         }}>
         <View style={styles.tagRow}>
           <View style={[styles.tag, styles.tagHelp]}>
-            <Text style={styles.tagText}>有偿求助</Text>
+            <Text style={styles.tagText}>求物品</Text>
           </View>
+          {!g.negotiable && (g.price ?? 0) > 0 ? (
+            <View style={[styles.tag, styles.tagHelp]}>
+              <Text style={styles.tagText}>有偿</Text>
+            </View>
+          ) : null}
           {deadlineText ? (
             <View style={[styles.tag, expired ? styles.tagExpired : styles.tagDeadline]}>
               <Text style={styles.tagText}>{deadlineText}</Text>
@@ -271,7 +274,7 @@ export default function HelpFeedScreen() {
             <Text
               style={[styles.title, viewed && styles.textMuted]}
               numberOfLines={2}>
-              {g.title || '有偿求助'}
+              {g.title || '求物品'}
             </Text>
             {g.content?.trim() ? (
               <Text
@@ -281,7 +284,10 @@ export default function HelpFeedScreen() {
               </Text>
             ) : null}
             <View style={styles.priceRow}>
-              <Text style={styles.price}>{fmtPrice(g.price)}</Text>
+              {(() => {
+                const t = formatGoodPrice(g.price, g.negotiable, g.goods_category);
+                return t ? <Text style={styles.price}>{t}</Text> : null;
+              })()}
               <Text style={[styles.meta, viewed && styles.textMuted]} numberOfLines={1}>
                 {formatAuthorName(g.author, '发布者')}
               </Text>
@@ -352,8 +358,8 @@ export default function HelpFeedScreen() {
                 setCreateSheet(false);
                 navigation.navigate('CreateQuestion');
               }}>
-              <Text style={styles.sheetRowText}>文字提问</Text>
-              <Text style={styles.sheetRowHint}>无偿咨询，求解答</Text>
+              <Text style={styles.sheetRowText}>求解答</Text>
+              <Text style={styles.sheetRowHint}>发起一个问题，等同学帮你回答</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.sheetRow}
@@ -362,8 +368,8 @@ export default function HelpFeedScreen() {
                 setCreateSheet(false);
                 navigation.navigate('GoodCreate', { initialCategory: 2 });
               }}>
-              <Text style={styles.sheetRowText}>有偿求助</Text>
-              <Text style={styles.sheetRowHint}>设置酬劳，接单完成</Text>
+              <Text style={styles.sheetRowText}>求物品</Text>
+              <Text style={styles.sheetRowHint}>求一件具体物品，可设置酬劳（有偿）</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.sheetCancel}

@@ -631,7 +631,7 @@ export default function GoodCreateScreen({ navigation, route }: any) {
             <View style={styles.segment}>
               {[
                 { k: GOODS_CATEGORY.Normal, label: '二手买卖' },
-                { k: GOODS_CATEGORY.Help, label: '有偿求助' },
+                { k: GOODS_CATEGORY.Help, label: '求物品' },
               ].map((opt) => {
                 const on = category === opt.k;
                 return (

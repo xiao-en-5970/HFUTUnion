@@ -220,10 +220,23 @@ export default function UserGoodsManageTab({ stackNavigation }: Props) {
             <Text style={styles.cardTitle} numberOfLines={2}>
               {item.title}
             </Text>
-            <Text style={styles.price}>
-              {formatGoodPrice(item.price, item.negotiable)}
-              <Text style={styles.stock}> · 库存 {item.stock ?? 0}</Text>
-            </Text>
+            {(() => {
+              const t = formatGoodPrice(item.price, item.negotiable, item.goods_category);
+              if (!t) {
+                // 求物品 + 无价 + 非面议：仅展示库存
+                return (
+                  <Text style={styles.price}>
+                    <Text style={styles.stock}>库存 {item.stock ?? 0}</Text>
+                  </Text>
+                );
+              }
+              return (
+                <Text style={styles.price}>
+                  {t}
+                  <Text style={styles.stock}> · 库存 {item.stock ?? 0}</Text>
+                </Text>
+              );
+            })()}
             <View style={styles.stats}>
               <Text style={styles.statText}>浏览 {item.view_count ?? 0}</Text>
               <Text style={styles.statDot}>·</Text>

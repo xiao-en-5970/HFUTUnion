@@ -407,25 +407,38 @@ export default function GoodDetailScreen({ route }: any) {
         )}
 
         <View style={styles.priceBlock}>
-          <View style={styles.priceMainRow}>
-            <Text style={styles.price}>
-              {formatGoodPrice(g.price, g.negotiable)}
-            </Text>
-            {hasDisc ? (
-              <>
-                <Text style={styles.old}>{formatPrice(marked)}</Text>
-                <View style={styles.discTag}>
-                  <Text style={styles.discTagText}>省{pct}%</Text>
-                </View>
-              </>
-            ) : null}
-          </View>
+          {(() => {
+            const priceText = formatGoodPrice(g.price, g.negotiable, g.goods_category);
+            if (!priceText) {
+              return null; // 求物品 + 无价 + 非面议：整行价格隐藏
+            }
+            return (
+              <View style={styles.priceMainRow}>
+                <Text style={styles.price}>{priceText}</Text>
+                {hasDisc ? (
+                  <>
+                    <Text style={styles.old}>{formatPrice(marked)}</Text>
+                    <View style={styles.discTag}>
+                      <Text style={styles.discTagText}>省{pct}%</Text>
+                    </View>
+                  </>
+                ) : null}
+              </View>
+            );
+          })()}
           <Text style={styles.title}>{g.title}</Text>
           <View style={styles.chips}>
             {isHelp ? (
-              <View style={[styles.chip, styles.chipHelp]}>
-                <Text style={[styles.chipText, styles.chipHelpText]}>有偿求助</Text>
-              </View>
+              <>
+                <View style={[styles.chip, styles.chipHelp]}>
+                  <Text style={[styles.chipText, styles.chipHelpText]}>求物品</Text>
+                </View>
+                {!g.negotiable && (g.price ?? 0) > 0 ? (
+                  <View style={[styles.chip, styles.chipHelp]}>
+                    <Text style={[styles.chipText, styles.chipHelpText]}>有偿</Text>
+                  </View>
+                ) : null}
+              </>
             ) : (
               <View style={styles.chip}>
                 <Text style={styles.chipText}>{g.goods_type_label || '商品'}</Text>

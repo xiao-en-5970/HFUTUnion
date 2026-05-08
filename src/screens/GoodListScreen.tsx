@@ -420,7 +420,7 @@ export default function GoodListScreen() {
                 )}
                 <View style={[styles.priceRow, !hasCover && styles.priceRowCompact]}>
                   <Text style={[styles.price, viewed && styles.viewedPrice]}>
-                    {formatGoodPrice(item.price, item.negotiable)}
+                    {formatGoodPrice(item.price, item.negotiable, item.goods_category)}
                   </Text>
                   {item.bargain ? (
                     <View style={styles.bargainTag}>
