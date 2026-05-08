@@ -275,7 +275,7 @@ export default function QQBindScreen() {
     return (
       <View style={[styles.banner, styles.bannerInfo]}>
         <Ionicons name="information-circle-outline" size={18} color={colors.primary} />
-        <Text style={styles.bannerText}>认证后 QQ 群里发的内容自动归属本账号</Text>
+        <Text style={styles.bannerText}>认证后 QQ 群里发的内容会同步到本账号</Text>
       </View>
     );
   }, [loadingUser, hasSchool, isBound, boundQQ]);
@@ -392,7 +392,7 @@ export default function QQBindScreen() {
           {isBound && phase === 'input' ? (
             <>
               <Text style={styles.hint}>
-                解绑后已发布内容会保留为孤儿，可绑回时归属。每账号只能绑 1 个 QQ
+                解绑后会暂时丢失 QQ 关联数据
               </Text>
               <PrimaryButton
                 title={cooldown > 0 ? `${cooldown}s 后重试` : '解绑'}
