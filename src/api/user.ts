@@ -53,8 +53,23 @@ export type UserLocation = {
   is_default?: boolean;
 };
 
+/**
+ * 后端 POST /user/login 在双 token 模型下返回：
+ *
+ *   { access_token, refresh_token, expires_in, token_type }
+ *
+ * 旧接口签名是 `Promise<string>`（直接是 token 字符串）；为兼容 RN 早期登录页，本函数
+ * 仍允许调用方按 string 解构（取 access_token），后续切到 setTokens 会更稳。
+ */
+export type LoginTokenPair = {
+  access_token: string;
+  refresh_token: string;
+  expires_in: number;
+  token_type: string;
+};
+
 export async function login(username: string, password: string) {
-  return apiRequest<string>('/user/login', {
+  return apiRequest<LoginTokenPair>('/user/login', {
     method: 'POST',
     body: JSON.stringify({ username, password }),
     skipAuth: true,

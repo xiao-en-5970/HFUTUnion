@@ -10,7 +10,7 @@ import {
   Platform,
 } from 'react-native';
 import { login, fetchUserInfo } from '../api/user';
-import { setToken } from '../api/client';
+import { setTokens } from '../api/client';
 import { writeCachedUserInfo } from '../utils/userCache';
 import Screen from '../components/Screen';
 import PrimaryButton from '../components/PrimaryButton';
@@ -28,12 +28,11 @@ export default function LoginScreen({ navigation }: any) {
     }
     try {
       setLoading(true);
-      const token = await login(username, password);
-      if (typeof token === 'string') {
-        await setToken(token);
-      } else {
-        await setToken(String(token));
+      const pair = await login(username, password);
+      if (!pair?.access_token || !pair?.refresh_token) {
+        throw new Error('登录响应缺少 token');
       }
+      await setTokens(pair.access_token, pair.refresh_token);
       try {
         const u = await fetchUserInfo();
         await writeCachedUserInfo(u);
