@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -25,6 +25,7 @@ import { formatAuthorName } from '../utils/authorName';
 import { markViewed, useViewedSet } from '../utils/viewedTracker';
 import { renderDeadlineBadge, isDeadlineExpired } from '../utils/deadline';
 import { formatGoodPrice } from '../utils/goodPrice';
+import { consumeListDirty } from '../utils/listInvalidate';
 
 /**
  * 「求助」页混排：
@@ -192,9 +193,18 @@ export default function HelpFeedScreen() {
     }
   }, []);
 
+  // 首次 mount 拉一次
+  useEffect(() => {
+    loadInitial();
+  }, [loadInitial]);
+
+  // focus 仅在外部显式置位 dirty 时才重拉，避免"点详情→返回→列表顺序抖"。
+  // 触发 dirty 的场景：发布求物品 / 发布求解答 等会改变本 feed 内容的动作。
   useFocusEffect(
     useCallback(() => {
-      loadInitial();
+      if (consumeListDirty('helpFeed')) {
+        loadInitial();
+      }
     }, [loadInitial]),
   );
 

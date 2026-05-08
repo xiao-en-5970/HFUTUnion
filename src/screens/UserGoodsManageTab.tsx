@@ -30,6 +30,7 @@ import {
 } from '../utils/pagination';
 import type { RootStackParamList } from '../navigation/RootStack';
 import { formatGoodPrice } from '../utils/goodPrice';
+import { markListDirty } from '../utils/listInvalidate';
 
 const GOOD_ON = 1;
 const GOOD_OFF = 2;
@@ -189,6 +190,10 @@ export default function UserGoodsManageTab({ stackNavigation }: Props) {
               } else {
                 await publishGood(g.id);
               }
+              // 商品上下架直接改 status，会让市集/求助 feed 内容变化——通知列表 dirty。
+              // 当前这里没法精确知道 cat=1 还是 2（GoodRow 字段稍后可补），保险起见两边都 mark。
+              markListDirty('goodMarket');
+              markListDirty('helpFeed');
               await loadInitial();
             } catch (e: any) {
               Alert.alert('操作失败', e?.message || '');

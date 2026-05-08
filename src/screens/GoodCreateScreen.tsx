@@ -26,6 +26,7 @@ import {
 } from '../api/goods';
 import { uploadOssUserFile } from '../api/oss';
 import { fetchUserInfo, fetchUserLocations, type UserLocation } from '../api/user';
+import { markListDirty } from '../utils/listInvalidate';
 import Screen from '../components/Screen';
 import PrimaryButton from '../components/PrimaryButton';
 import { colors, radius, space } from '../theme/colors';
@@ -567,6 +568,8 @@ export default function GoodCreateScreen({ navigation, route }: any) {
                   goods_lng: selected!.lng ?? null,
                 },
         );
+        // 编辑保存：列表卡片可能展示的字段（标题/价格/封面图）也变了
+        markListDirty(isHelp ? 'helpFeed' : 'goodMarket');
         Alert.alert('已保存', '', [
           {
             text: '确定',
@@ -603,6 +606,9 @@ export default function GoodCreateScreen({ navigation, route }: any) {
               },
       );
       await publishGood(id);
+      // 标记对应列表 dirty：用户回到「市集」/「求助」tab 时会刷一次新数据，
+      // 让自己上架的内容立即出现；其它路径（普通详情返回）不受影响。
+      markListDirty(isHelp ? 'helpFeed' : 'goodMarket');
       Alert.alert('已上架', '', [
         { text: '确定', onPress: () => navigation.replace('GoodDetail', { id }) },
       ]);

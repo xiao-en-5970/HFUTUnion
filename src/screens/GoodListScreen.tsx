@@ -41,6 +41,7 @@ import {
 } from '../utils/pagination';
 import { markViewed, useViewedSet } from '../utils/viewedTracker';
 import { isDeadlineExpired, renderDeadlineBadge } from '../utils/deadline';
+import { consumeListDirty } from '../utils/listInvalidate';
 
 function goodsCacheKey(keyword: string, sort: GoodsListSort) {
   const k = keyword.trim() || '__all__';
@@ -193,9 +194,19 @@ export default function GoodListScreen() {
     }
   }, [goodsSort]);
 
+  // 首次 mount + 排序/搜索导致 load 引用变化 → 立刻 load。
+  // load 函数依赖 goodsSort：用户切排序 chip 会让 load 重建，触发本 effect。
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  // focus 仅在外部显式置位 dirty 时才重拉，避免"点详情→返回→列表顺序抖"。
+  // 触发 dirty 的场景目前为：GoodCreateScreen 发布成功（cat=1 二手）。
   useFocusEffect(
     useCallback(() => {
-      load();
+      if (consumeListDirty('goodMarket')) {
+        load();
+      }
     }, [load]),
   );
 
