@@ -1,18 +1,26 @@
 diff --git a/node_modules/react-native-awesome-gallery/src/index.tsx b/node_modules/react-native-awesome-gallery/src/index.tsx
-index 4aa4c54..96a2e03 100644
+index 4aa4c54..29d6a56 100644
 --- a/node_modules/react-native-awesome-gallery/src/index.tsx
 +++ b/node_modules/react-native-awesome-gallery/src/index.tsx
-@@ -561,8 +561,11 @@ const ResizableImage = React.memo(
-       .onUpdate(({ translationX, translationY, velocityY }) => {
-         'worklet';
-         if (!isActive.value) return;
--        if (disableVerticalSwipe && scale.value === 1 && isVertical.value)
--          return;
-+        // Patch (HFUTUnion): 原条件 `scale.value === 1` 让 disableVerticalSwipe 仅在
-+        // scale=1 时禁用 vertical pan，但 pinch 缩放过程中 scale 一直在变（≠1），导致
-+        // pan 累积 translationY，松手时表现为"放大下移 / 缩小上移几像素"。
-+        // 改成 disableVerticalSwipe 时**任何 scale 都禁用**，彻底消除 pinch 副作用。
-+        if (disableVerticalSwipe && isVertical.value) return;
+@@ -478,7 +478,20 @@ const ResizableImage = React.memo(
+           const diffY = nextTransY + offset.y.value - (newHeight - height) / 2;
  
-         const x = getEdgeX();
- 
+           if (newHeight <= height) {
+-            translation.y.value = withTiming(-offset.y.value);
++            // Patch (HFUTUnion): 原行为 `withTiming(-offset.y.value)` 把 translation.y
++            // 强制对齐回几何中心——这是 pinch 松开瞬间"图突然下移/上移几像素"的真实
++            // 来源（双指中心点 pinch 时本身有微小垂直漂移，translation.y 累积出几像素，
++            // 松手强制回 0 → 视觉抖动）。
++            //
++            // 改成：只在图真的越界（绝对位置超出 |maxAbsY|）才平滑回弹到边界内；
++            // 边界内则保持当前 translation.y，让 pinch 松手位置精确不动。
++            const maxAbsY = Math.max(0, (height - newHeight) / 2);
++            const cur = translation.y.value;
++            if (Math.abs(cur + offset.y.value) > maxAbsY) {
++              const target = Math.sign(cur + offset.y.value) * maxAbsY - offset.y.value;
++              translation.y.value = withTiming(target);
++            }
++            // else 保持 translation.y 不变 —— 不再强制对齐
+           } else {
+             let moved;
+             if (diffY > 0) {
