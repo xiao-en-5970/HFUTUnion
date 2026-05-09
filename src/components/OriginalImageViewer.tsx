@@ -15,9 +15,8 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import PagerView from 'react-native-pager-view';
+import Gallery from 'react-native-awesome-gallery';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import ZoomableImageCanvas from './ZoomableImageCanvas';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { colors } from '../theme/colors';
 import { originalImageUrl, thumbnailImageUrl } from '../utils/imageUrl';
@@ -34,11 +33,13 @@ type Props = {
 
 function ViewerSlide({
   uri,
-  onZoomChange,
+  setImageDimensions,
   footerLift = 0,
 }: {
   uri: string;
-  onZoomChange?: (zoomed: boolean) => void;
+  /** Gallery 用来知道实际图片纵横比，决定 fit-to-screen 后的尺寸；
+   *  thumb 加载完时调用即可（thumb 跟 full 同比例）。 */
+  setImageDimensions?: (dims: { width: number; height: number }) => void;
   /** 底部有分页指示器时上移，避免重叠 */
   footerLift?: number;
 }) {
@@ -189,34 +190,50 @@ function ViewerSlide({
     }
   }, [orig, thumbTone, fadeAnim]);
 
+  // 上报实际图片纵横比给 Gallery（仅一次）。Gallery 据此决定 contain-fit 后的尺寸 +
+  // pinch 边界。thumb 跟 full 是同图不同分辨率，比例一致，用 thumb 的 onLoad 上报最快。
+  const reportedDimsRef = useRef(false);
+  const handleThumbLoad = useCallback(
+    (e: any) => {
+      if (reportedDimsRef.current) return;
+      const src = e?.nativeEvent?.source;
+      if (src && src.width > 0 && src.height > 0) {
+        reportedDimsRef.current = true;
+        setImageDimensions?.({ width: src.width, height: src.height });
+      }
+    },
+    [setImageDimensions],
+  );
+
+  // 换图时允许重新上报（不同图尺寸不同）
+  useEffect(() => {
+    reportedDimsRef.current = false;
+  }, [uri]);
+
   return (
     <View style={[styles.slide, { width: slideWidth, height: slideHeight }]}>
-      <ZoomableImageCanvas
-        width={slideWidth}
-        height={slideHeight}
-        resetKey={uri}
-        onZoomChange={onZoomChange}>
-        <View style={styles.zoomInner}>
-          <Animated.View style={[styles.layer, { opacity: thumbTone }]}>
-            <Image
-              source={{ uri: thumbSrc }}
-              style={styles.image}
-              resizeMode="contain"
-              onError={() => {
-                if (!thumbMissing && thumbSrc !== orig) {
-                  setThumbSrc(orig);
-                  setThumbMissing(true);
-                }
-              }}
-            />
+      {/* 图片层——Gallery 外层负责 pinch / pan / 翻页 / swipe-to-close */}
+      <View style={styles.zoomInner}>
+        <Animated.View style={[styles.layer, { opacity: thumbTone }]}>
+          <Image
+            source={{ uri: thumbSrc }}
+            style={styles.image}
+            resizeMode="contain"
+            onLoad={handleThumbLoad}
+            onError={() => {
+              if (!thumbMissing && thumbSrc !== orig) {
+                setThumbSrc(orig);
+                setThumbMissing(true);
+              }
+            }}
+          />
+        </Animated.View>
+        {fullDataUri ? (
+          <Animated.View style={[styles.layer, { opacity: fadeAnim }]}>
+            <Image source={{ uri: fullDataUri }} style={styles.image} resizeMode="contain" />
           </Animated.View>
-          {fullDataUri ? (
-            <Animated.View style={[styles.layer, { opacity: fadeAnim }]}>
-              <Image source={{ uri: fullDataUri }} style={styles.image} resizeMode="contain" />
-            </Animated.View>
-          ) : null}
-        </View>
-      </ZoomableImageCanvas>
+        ) : null}
+      </View>
 
       {showHdButton ? (
         <TouchableOpacity
@@ -286,34 +303,23 @@ export default function OriginalImageViewer({
 }: Props) {
   const { width: w, height: h } = Dimensions.get('window');
   const insets = useSafeAreaInsets();
-  const pagerRef = useRef<PagerView>(null);
   const [page, setPage] = useState(initialIndex);
 
-  // 多图翻页用 PagerView 而非 ScrollView：
-  //   - ScrollView 跟 RNGH 手势属于不同手势系统，pinch 时只能靠 React state（scrollEnabled）
-  //     关闭，存在 16~50ms 异步延迟，导致 pinch 跟 ScrollView 在 1~2 帧内抢手势——视觉上
-  //     图像撕裂、分身飞向手指、松手 ScrollView 惯性回弹"位移几十像素"。
-  //   - PagerView 是 native ViewPager 实现，原生支持"内部子 view 双指 = 让出滑动手势"，
-  //     pinch 时无需任何 React 协调，自动停止响应翻页。
-  // 通过 ref.setScrollEnabled(false) 在已放大状态下显式锁住翻页（双保险）。
-  const onZoom = useCallback((zoomed: boolean) => {
-    pagerRef.current?.setScrollEnabled(!zoomed);
-  }, []);
-
-  useEffect(() => {
-    if (!visible) {
-      pagerRef.current?.setScrollEnabled(true);
-    }
-  }, [visible]);
+  // 用 react-native-awesome-gallery 替代之前自实现的 ZoomableImageCanvas + ScrollView 组合。
+  //
+  // 之前自实现的痛点：
+  //   - ScrollView/PagerView 的翻页手势跟 RNGH/reanimated pinch 是两套独立手势系统，
+  //     pinch 开始瞬间存在 16~50ms 的异步窗口让 ScrollView 抢响应——视觉上图像分身、
+  //     飞向手指、松手位移。
+  //   - 维护起来很复杂（手势仲裁、状态同步、边界橡皮筋…）。
+  //
+  // awesome-gallery 由社区维护，整套手势全在 reanimated worklet 里调度——pinch / pan /
+  // 双击 / 翻页 / swipe-to-close 在同一个手势仲裁系统内，不存在跨系统抢响应。
+  const galleryData = useMemo(() => uris, [uris]);
 
   useEffect(() => {
     if (visible) {
-      const i = Math.min(Math.max(0, initialIndex), Math.max(0, uris.length - 1));
-      setPage(i);
-      // PagerView 在挂载后立即 setPageWithoutAnimation 跳到指定页
-      requestAnimationFrame(() => {
-        pagerRef.current?.setPageWithoutAnimation(i);
-      });
+      setPage(Math.min(Math.max(0, initialIndex), Math.max(0, uris.length - 1)));
     }
   }, [visible, initialIndex, uris.length]);
 
@@ -338,24 +344,23 @@ export default function OriginalImageViewer({
             <Ionicons name="close" size={30} color="#fff" />
           </TouchableOpacity>
 
-          <PagerView
-            ref={pagerRef}
-            style={{ flex: 1, width: w, height: h }}
-            initialPage={initialIndex}
-            onPageSelected={(e) => {
-              const i = e.nativeEvent.position;
-              setPage(Math.min(Math.max(0, i), uris.length - 1));
-            }}>
-            {uris.map((u, idx) => (
-              <View key={`${u}-${idx}`} style={{ width: w, height: h }}>
-                <ViewerSlide
-                  uri={u}
-                  onZoomChange={onZoom}
-                  footerLift={uris.length > 1 ? 36 : 0}
-                />
-              </View>
-            ))}
-          </PagerView>
+          <Gallery
+            data={galleryData}
+            initialIndex={initialIndex}
+            onIndexChange={setPage}
+            onSwipeToClose={onRequestClose}
+            keyExtractor={(item, idx) => `${item}-${idx}`}
+            doubleTapScale={2}
+            maxScale={6}
+            renderItem={({ item, setImageDimensions }) => (
+              <ViewerSlide
+                uri={item}
+                setImageDimensions={setImageDimensions}
+                footerLift={uris.length > 1 ? 36 : 0}
+              />
+            )}
+            style={{ width: w, height: h }}
+          />
 
           {uris.length > 1 ? (
             <View style={[styles.dots, { bottom: Math.max(insets.bottom, 16) }]}>
