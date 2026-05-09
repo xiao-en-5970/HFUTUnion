@@ -6,7 +6,6 @@ import {
   Modal,
   StyleSheet,
   TouchableOpacity,
-  ScrollView,
   Dimensions,
   Animated,
   Alert,
@@ -16,6 +15,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import PagerView from 'react-native-pager-view';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ZoomableImageCanvas from './ZoomableImageCanvas';
 import Ionicons from 'react-native-vector-icons/Ionicons';
@@ -286,17 +286,23 @@ export default function OriginalImageViewer({
 }: Props) {
   const { width: w, height: h } = Dimensions.get('window');
   const insets = useSafeAreaInsets();
-  const scrollRef = useRef<ScrollView>(null);
+  const pagerRef = useRef<PagerView>(null);
   const [page, setPage] = useState(initialIndex);
-  const [hScrollEnabled, setHScrollEnabled] = useState(true);
 
+  // 多图翻页用 PagerView 而非 ScrollView：
+  //   - ScrollView 跟 RNGH 手势属于不同手势系统，pinch 时只能靠 React state（scrollEnabled）
+  //     关闭，存在 16~50ms 异步延迟，导致 pinch 跟 ScrollView 在 1~2 帧内抢手势——视觉上
+  //     图像撕裂、分身飞向手指、松手 ScrollView 惯性回弹"位移几十像素"。
+  //   - PagerView 是 native ViewPager 实现，原生支持"内部子 view 双指 = 让出滑动手势"，
+  //     pinch 时无需任何 React 协调，自动停止响应翻页。
+  // 通过 ref.setScrollEnabled(false) 在已放大状态下显式锁住翻页（双保险）。
   const onZoom = useCallback((zoomed: boolean) => {
-    setHScrollEnabled(!zoomed);
+    pagerRef.current?.setScrollEnabled(!zoomed);
   }, []);
 
   useEffect(() => {
     if (!visible) {
-      setHScrollEnabled(true);
+      pagerRef.current?.setScrollEnabled(true);
     }
   }, [visible]);
 
@@ -304,11 +310,12 @@ export default function OriginalImageViewer({
     if (visible) {
       const i = Math.min(Math.max(0, initialIndex), Math.max(0, uris.length - 1));
       setPage(i);
+      // PagerView 在挂载后立即 setPageWithoutAnimation 跳到指定页
       requestAnimationFrame(() => {
-        scrollRef.current?.scrollTo({ x: i * w, animated: false });
+        pagerRef.current?.setPageWithoutAnimation(i);
       });
     }
-  }, [visible, initialIndex, uris.length, w, h]);
+  }, [visible, initialIndex, uris.length]);
 
   if (!uris.length) {
     return null;
@@ -331,16 +338,12 @@ export default function OriginalImageViewer({
             <Ionicons name="close" size={30} color="#fff" />
           </TouchableOpacity>
 
-          <ScrollView
-            ref={scrollRef}
-            style={{ height: h }}
-            horizontal
-            pagingEnabled
-            scrollEnabled={hScrollEnabled}
-            showsHorizontalScrollIndicator={false}
-            onMomentumScrollEnd={(e) => {
-              const x = e.nativeEvent.contentOffset.x;
-              const i = Math.round(x / w);
+          <PagerView
+            ref={pagerRef}
+            style={{ flex: 1, width: w, height: h }}
+            initialPage={initialIndex}
+            onPageSelected={(e) => {
+              const i = e.nativeEvent.position;
               setPage(Math.min(Math.max(0, i), uris.length - 1));
             }}>
             {uris.map((u, idx) => (
@@ -352,7 +355,7 @@ export default function OriginalImageViewer({
                 />
               </View>
             ))}
-          </ScrollView>
+          </PagerView>
 
           {uris.length > 1 ? (
             <View style={[styles.dots, { bottom: Math.max(insets.bottom, 16) }]}>
