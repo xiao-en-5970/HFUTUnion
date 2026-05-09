@@ -12,13 +12,37 @@ import {
   type TapGestureHandlerStateChangeEvent,
 } from 'react-native-gesture-handler';
 
-/** 100% 为最小；最大 1000% = 10 倍 */
+/** 自然回正基线（pinch 松手会 spring 到这个值） */
 const MIN_SCALE = 1;
+/** 上界硬 clamp：超过这个倍数就不再继续放大（同时给手感反馈"已到极限"） */
 const MAX_SCALE = 10;
 /** 双击放大档位（未缩放时双击直接到这个倍数） */
 const DOUBLE_TAP_SCALE = 2;
 /** 视为"已缩放"的阈值——浮点比较留 1% 容差，避免缩放回 1.000003 时还判定为已缩放 */
 const ZOOMED_EPS = 1.01;
+/** 橡皮筋下界——pinch 过程允许实时显示到这个最小值，再小手势也不会让视图继续变小 */
+const RUBBER_MIN_SCALE = 0.4;
+
+/**
+ * applyRubberBand 在缩放低于 1 时引入"橡皮筋阻尼"——iOS Photos 风格。
+ *
+ * 用户继续往内捏 → 视图继续缩小，但**越小阻力越大**，手指捏到 0.3 倍时视图大概只缩到 0.65 倍。
+ * 松手会被 onPinchHandlerStateChange 的 ENDED 分支 spring 回 MIN_SCALE。
+ *
+ * 公式：raw < 1 时 displayed = 1 - sqrt(1 - raw) * dampFactor，
+ *       sqrt 让"刚开始缩"还有线性手感，越深入阻力越强；
+ *       hard floor RUBBER_MIN_SCALE 防止极端 pinch 把视图缩到 0.05 这种视觉灾难。
+ */
+function applyRubberBand(raw: number): number {
+  if (raw >= MIN_SCALE) {
+    return Math.min(MAX_SCALE, raw);
+  }
+  // raw < 1：进入橡皮筋
+  const overshoot = MIN_SCALE - raw;        // (0, 1] 区间
+  const damped = Math.sqrt(overshoot) * 0.55;
+  const displayed = MIN_SCALE - damped;
+  return Math.max(RUBBER_MIN_SCALE, displayed);
+}
 
 /**
  * clampPan 在屏幕坐标里把平移量约束到"图片不能拖出画面"的范围内。
@@ -28,6 +52,9 @@ const ZOOMED_EPS = 1.01;
  *   M = T(tx,ty) * S(s)
  * 一个图心点 (0,0) 经过 M 后落到 (tx, ty)——即 translate 直接是屏幕位移，
  * 与缩放无关。所以 clamp 直接限定 |tx| <= w*(s-1)/2、|ty| <= h*(s-1)/2 即可。
+ *
+ * s <= 1 的特殊情况：图视觉小于等于屏幕，"居中显示"才是合理行为，所以直接锁回 (0,0)；
+ * 否则 (s-1) 是负数，公式会算出"反向 clamp"产生异常行为。
  */
 function clampPan(
   tx: number,
@@ -36,6 +63,9 @@ function clampPan(
   w: number,
   h: number,
 ): { tx: number; ty: number } {
+  if (s <= 1) {
+    return { tx: 0, ty: 0 };
+  }
   const maxX = (w * (s - 1)) / 2;
   const maxY = (h * (s - 1)) / 2;
   return {
@@ -135,10 +165,13 @@ export default function ZoomableImageCanvas({
     const cx = width / 2;
     const cy = height / 2;
 
-    const newScale = Math.min(
-      MAX_SCALE,
-      Math.max(MIN_SCALE, scaleAtGestureStart.current * e.nativeEvent.scale),
-    );
+    // raw 是用户手势"想要"的 scale；显示用 applyRubberBand 处理：
+    //   - raw ≥ 1：直接用（上界 clamp 到 MAX_SCALE）
+    //   - raw < 1：进入橡皮筋下界，越捏越费力且不超过 RUBBER_MIN_SCALE
+    // 这样松手前用户就能看到"图变小"的反馈，松手再 spring 回 1（见 ENDED 分支）。
+    const raw = scaleAtGestureStart.current * e.nativeEvent.scale;
+    const newScale = applyRubberBand(raw);
+
     const prev = pinchLastScaleRef.current;
     if (prev > 0) {
       const factor = newScale / prev;
@@ -162,14 +195,14 @@ export default function ZoomableImageCanvas({
       onZoomChange?.(true); // 立即关闭外层水平 swipe，防 pinch 过程中误触翻页
     }
     if (e.nativeEvent.oldState === State.ACTIVE) {
-      const next = Math.min(
-        MAX_SCALE,
-        Math.max(MIN_SCALE, scaleAtGestureStart.current * pinchScale),
-      );
-      baseScale.current = next;
-      pinchLastScaleRef.current = next;
+      // 松手时**不再用 Math.max(MIN_SCALE, ...)** 提前夹住——让"用户意图缩到 0.5x"也能进入
+      // 下面的 else 分支触发 spring 回 1。仅上界依然硬 clamp 到 MAX_SCALE。
+      const intended = scaleAtGestureStart.current * pinchScale;
+      const next = Math.min(MAX_SCALE, intended);
 
       if (next > ZOOMED_EPS) {
+        baseScale.current = next;
+        pinchLastScaleRef.current = next;
         // 松手时把 translate 收进合法范围（pinch 过程不 clamp，让用户感觉自然，类似 iOS Photos）
         const c = clampPan(savedTX.current, savedTY.current, next, width, height);
         savedTX.current = c.tx;
@@ -180,7 +213,7 @@ export default function ZoomableImageCanvas({
         ]).start();
         setPanEnabled(true);
       } else {
-        // 缩到 1 以下 → spring 回 1 + 平移归零
+        // next <= 1（含橡皮筋区间的 < 1 和正好 = 1 两种）→ 回弹基线：scale=1 + 平移归零
         savedTX.current = 0;
         savedTY.current = 0;
         const token = ++animTokenRef.current;
