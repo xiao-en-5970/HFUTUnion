@@ -1,60 +1,81 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, StyleSheet } from 'react-native';
-import {
-  PanGestureHandler,
-  PinchGestureHandler,
-  TapGestureHandler,
-  State,
-  type PanGestureHandlerGestureEvent,
-  type PanGestureHandlerStateChangeEvent,
-  type PinchGestureHandlerGestureEvent,
-  type PinchGestureHandlerStateChangeEvent,
-  type TapGestureHandlerStateChangeEvent,
-} from 'react-native-gesture-handler';
+import React, { useCallback, useEffect } from 'react';
+import { StyleSheet } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, {
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
 
-/** 自然回正基线（pinch 松手会 spring 到这个值） */
+/**
+ * ZoomableImageCanvas —— 主流"图片预览"手势：
+ *
+ *   - 双指 pinch 缩放（以双指中点为锚 + 中点移动跟手平移，跟 iOS Photos 完全一致）
+ *   - 已放大后单指 pan 拖动（1:1 等比，到边停）
+ *   - 双击 1x ↔ 2x 切换
+ *   - 缩到 < 1x 橡皮筋松手回正
+ *
+ * 实现栈：reanimated v4 sharedValue + react-native-gesture-handler v2 Gesture API。
+ * 整套手势计算运行在 UI 线程的 worklet 里，scale / translateX / translateY 同帧 commit。
+ *
+ * ──────────────────────────────────────────────────────────────────────────────
+ * 关键设计决定：pinch 跟 pan 用 Gesture.Race 互斥（不是 Simultaneous）
+ * ──────────────────────────────────────────────────────────────────────────────
+ *
+ * 之前的 Simultaneous(pinch, pan) 让两者并行，导致 bug：
+ *   - pan 用 e.translationX（自手指落下累积位移）写 translate
+ *   - pinch 用焦点公式写 translate
+ *   - 同帧两者都写 sharedValue，肉眼上图像分裂、飞向两根手指
+ *
+ * Race 后只有先识别的赢：
+ *   - 单指拖（minDistance 触发）→ pan 赢
+ *   - 双指落下 → pinch 立刻识别（无需 minDistance），pan 取消
+ *
+ * 跟手平移（双指中点移动）已经在 pinch onUpdate 内部实现（`panTX = focalNow - focalStart`），
+ * **不需要** pan 同时参与；pan 只服务"放大后单指拖"这个独立场景。
+ *
+ * 代价：用户单指 pan 一半再加第二指要 pinch 时，pinch 不会触发——必须先抬手再双指捏。
+ * 这个 trade-off 主流图片预览也都接受（包括 Instagram / iOS Photos 内部的 stable 模式）。
+ */
+
 const MIN_SCALE = 1;
-/** 上界硬 clamp：超过这个倍数就不再继续放大（同时给手感反馈"已到极限"） */
 const MAX_SCALE = 10;
-/** 双击放大档位（未缩放时双击直接到这个倍数） */
 const DOUBLE_TAP_SCALE = 2;
-/** 视为"已缩放"的阈值——浮点比较留 1% 容差，避免缩放回 1.000003 时还判定为已缩放 */
 const ZOOMED_EPS = 1.01;
-/** 橡皮筋下界——pinch 过程允许实时显示到这个最小值，再小手势也不会让视图继续变小 */
 const RUBBER_MIN_SCALE = 0.4;
+
+/** 弹簧参数——风格统一，配合 mass=1 默认值，体感跟 iOS Photos 接近 */
+const SPRING_CONFIG = { damping: 20, stiffness: 180, mass: 1 } as const;
+
+/** 浮点亚像素容差——肉眼 < 0.5px 移动不可察觉，认为相等就不启动 spring */
+const PIXEL_EPS = 0.5;
 
 /**
  * applyRubberBand 在缩放低于 1 时引入"橡皮筋阻尼"——iOS Photos 风格。
- *
- * 用户继续往内捏 → 视图继续缩小，但**越小阻力越大**，手指捏到 0.3 倍时视图大概只缩到 0.65 倍。
- * 松手会被 onPinchHandlerStateChange 的 ENDED 分支 spring 回 MIN_SCALE。
- *
- * 公式：raw < 1 时 displayed = 1 - sqrt(1 - raw) * dampFactor，
- *       sqrt 让"刚开始缩"还有线性手感，越深入阻力越强；
- *       hard floor RUBBER_MIN_SCALE 防止极端 pinch 把视图缩到 0.05 这种视觉灾难。
+ * raw < 1 时 displayed = 1 - sqrt(1 - raw) * 0.55，越深入阻力越强。
+ * hard floor RUBBER_MIN_SCALE 防止极端 pinch 缩到 0.05 这种灾难。
  */
 function applyRubberBand(raw: number): number {
+  'worklet';
   if (raw >= MIN_SCALE) {
     return Math.min(MAX_SCALE, raw);
   }
-  // raw < 1：进入橡皮筋
-  const overshoot = MIN_SCALE - raw;        // (0, 1] 区间
+  const overshoot = MIN_SCALE - raw;
   const damped = Math.sqrt(overshoot) * 0.55;
   const displayed = MIN_SCALE - damped;
   return Math.max(RUBBER_MIN_SCALE, displayed);
 }
 
 /**
- * clampPan 在屏幕坐标里把平移量约束到"图片不能拖出画面"的范围内。
+ * clampPan 把平移量约束到"图片不能拖出画面"的范围内。
  *
- * 推导：图被放大 s 倍后视觉宽度 = s*w；可向左/右各拖 (s*w - w)/2 = w*(s-1)/2 而仍能看到边。
- * 我们用 transform: [{ translateX }, { translateY }, { scale }]，矩阵是
- *   M = T(tx,ty) * S(s)
- * 一个图心点 (0,0) 经过 M 后落到 (tx, ty)——即 translate 直接是屏幕位移，
- * 与缩放无关。所以 clamp 直接限定 |tx| <= w*(s-1)/2、|ty| <= h*(s-1)/2 即可。
+ * transform = `[translateX, translateY, scale]`（origin = view center）：
+ *   P_screen = (P_image - center) * s + center + (tx, ty)
+ * 即 translate 直接是屏幕坐标位移，跟 scale 解耦。
+ * 图缩放 s 倍后视觉宽度 = s*w，tx 合法区间 = ±w*(s-1)/2。
  *
- * s <= 1 的特殊情况：图视觉小于等于屏幕，"居中显示"才是合理行为，所以直接锁回 (0,0)；
- * 否则 (s-1) 是负数，公式会算出"反向 clamp"产生异常行为。
+ * s ≤ 1 时图视觉小于等于屏幕，居中显示，translate 锁回 (0,0)。
  */
 function clampPan(
   tx: number,
@@ -63,6 +84,7 @@ function clampPan(
   w: number,
   h: number,
 ): { tx: number; ty: number } {
+  'worklet';
   if (s <= 1) {
     return { tx: 0, ty: 0 };
   }
@@ -83,28 +105,6 @@ type Props = {
   children: React.ReactNode;
 };
 
-/**
- * 双指 pinch（1×～10×）+ 已缩放后单指拖动 + 双击放大/还原。
- *
- * 设计要点：
- *
- * 1) transform 顺序 = `[translateX, translateY, scale]`，对应矩阵 T*S。
- *    点 P 经过 T*S 后 = T(S*P) = s*P + (tx,ty)，即**translate 是屏幕坐标位移**，
- *    跟缩放倍率解耦。这样 pan 拖动可以做到 1:1 等比例（手指走多远图就走多远），
- *    不需要原来 1/s^0.45 的非线性 damp 补偿。
- *
- * 2) Pinch 锚点公式：要让屏幕上某点 (fx,fy) 在缩放前后位置不变，需满足
- *      tx' = tx + (fx - cx - tx) * (1 - s'/s)
- *    其中 cx = 视图中心（RN transform 默认 origin）。
- *    旧实现少了 -tx 项，跨多次 pinch 累积时锚点会漂移；这里修正。
- *
- * 3) 双击：未缩放（scale ≈ 1）→ 以双击点为锚放大到 DOUBLE_TAP_SCALE；
- *          已缩放（scale > 1）→ 平滑回正到 1。
- *
- * 4) 用 RN Animated + RNGH v2 的 ANN handler API（PinchGestureHandler 等），
- *    避免 Reanimated/Worklets 的原生依赖；spring 用 useNativeDriver:false
- *    因为 transform 同时作用 scale + translate，原生驱动会报"non-transform"。
- */
 export default function ZoomableImageCanvas({
   width,
   height,
@@ -112,297 +112,205 @@ export default function ZoomableImageCanvas({
   onZoomChange,
   children,
 }: Props) {
-  const pinchRef = useRef<PinchGestureHandler>(null);
-  const panRef = useRef<PanGestureHandler>(null);
-  const doubleTapRef = useRef<TapGestureHandler>(null);
+  // 当前帧的实时变换值（直接绑到 transform）
+  const scale = useSharedValue(1);
+  const translateX = useSharedValue(0);
+  const translateY = useSharedValue(0);
 
-  const scale = useRef(new Animated.Value(1)).current;
-  const translateX = useRef(new Animated.Value(0)).current;
-  const translateY = useRef(new Animated.Value(0)).current;
+  // 上一次手势结束后稳定的"基线"值——下次 pinch/pan 都基于它叠加
+  const baseScale = useSharedValue(1);
+  const baseTX = useSharedValue(0);
+  const baseTY = useSharedValue(0);
 
-  /** 上一次手势结束后稳定的 scale；pan 时也根据它判断是否启用拖动 */
-  const baseScale = useRef(1);
-  /** pinch 开始那一刻的 scale，用于 e.scale * scaleAtGestureStart 计算新 scale */
-  const scaleAtGestureStart = useRef(1);
-  /** 上一次手势结束后稳定的 translate */
-  const savedTX = useRef(0);
-  const savedTY = useRef(0);
-  /** pinch BEGAN 时一次性锁定的焦点起始 + translate 起始——pinch 过程不再帧累积，
-   *  避免双指中心点每帧微抖导致 translate 抖动。详见 onPinchGestureEvent 注释。 */
-  const focalStartX = useRef(0);
-  const focalStartY = useRef(0);
-  const txAtPinchStart = useRef(0);
-  const tyAtPinchStart = useRef(0);
-  /** 防 spring 完成回调踩竞态：进了新的手势就把回调忽略 */
-  const animTokenRef = useRef(0);
+  // pinch onStart 一次性锁定的起始焦点（屏幕坐标）。pinch 过程中 e.focalX/Y 每帧变化，
+  // 但锚点公式只依赖"起始焦点 + 起始 baseTX"，避免双指中点微抖被无限放大。
+  const focalStartX = useSharedValue(0);
+  const focalStartY = useSharedValue(0);
 
-  const [panEnabled, setPanEnabled] = useState(false);
-
-  const setZoomedState = useCallback(
-    (s: number) => {
-      const zoomed = s > ZOOMED_EPS;
-      setPanEnabled(zoomed);
+  // 桥接 worklet → JS：通知外层"是否已放大"以便关闭水平 swipe 翻页。
+  const notifyZoomed = useCallback(
+    (zoomed: boolean) => {
       onZoomChange?.(zoomed);
     },
     [onZoomChange],
   );
 
+  // 换图时重置所有共享值（停止任何进行中的 spring）
   useEffect(() => {
-    animTokenRef.current++;
-    baseScale.current = 1;
-    scaleAtGestureStart.current = 1;
-    savedTX.current = 0;
-    savedTY.current = 0;
-    focalStartX.current = 0;
-    focalStartY.current = 0;
-    txAtPinchStart.current = 0;
-    tyAtPinchStart.current = 0;
-    scale.setValue(1);
-    translateX.setValue(0);
-    translateY.setValue(0);
-    setZoomedState(1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅换图时重置手势状态
+    scale.value = 1;
+    translateX.value = 0;
+    translateY.value = 0;
+    baseScale.value = 1;
+    baseTX.value = 0;
+    baseTY.value = 0;
+    onZoomChange?.(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅 resetKey 触发
   }, [resetKey]);
 
-  // ---------- Pinch ----------
-
-  // pinch 过程中实时更新 scale + translate。
+  // ───────────────────────── Pinch（缩放 + 跟手平移）─────────────────────────
   //
-  // 关键设计：**BEGAN 一次性锁定起始焦点**（focalStartX/Y）和起始 translate
-  // （txAtPinchStart/tyAtPinchStart）；pinch 过程中**绝对值**计算 translate，
-  // 不再像旧版那样每帧"增量累加 fx 抖动"——双指中心 fx 在屏幕上有 ±1px 级别的
-  // 微抖，旧的帧累积写法会把这个微抖一直叠加到 savedTX 里，肉眼能看到图像颤。
+  // 数学模型（origin = view center, transform = T*S）：
+  //   P_screen = (P_image - center) * s + center + (tx, ty)
   //
-  // 公式（绝对值，无帧累积）：
+  // 不变性："f0_screen 处的图像内容"在 pinch 全过程中始终落在当前焦点 f_now：
+  //   (f0 - center - t0) / s0 = (f_now - center - t_now) / s_now
+  // ⇒ t_now = f_now - center - (s_now/s0) * (f0 - center - t0)
   //
-  //   factor = newScale / scaleAtGestureStart            // 跟"开始那一刻"的相对比
-  //   anchorTX = txAtPinchStart + (focalStartX - cx - txAtPinchStart) * (1 - factor)
-  //   panTX    = focalNow - focalStartX                  // pinch 过程中焦点本身的位移
-  //   translateX = anchorTX + panTX
+  // 这条公式同时实现：
+  //   1) 缩放锚点：f0 处图像不动 → "对哪两根手指捏，那一点就在原地放大"
+  //   2) 跟手平移：双指中点 f0 → f_now，等于把图整体挪 (f_now - f0) 像素
   //
-  // 抖动如何被吸收：focalStart 是常量（BEGAN 时记下一次），手指漂移只进入 panTX
-  // 项，且 panTX 是手指中点的**绝对位移**，不会随帧抖动累积放大。
-  const onPinchGestureEvent = (e: PinchGestureHandlerGestureEvent) => {
-    const fx = e.nativeEvent.focalX;
-    const fy = e.nativeEvent.focalY;
-    const cx = width / 2;
-    const cy = height / 2;
+  // 每帧绝对值计算（不依赖上一帧的 savedTX 累加），fx 微抖不会被多帧放大。
+  const pinch = Gesture.Pinch()
+    .onStart((e) => {
+      'worklet';
+      focalStartX.value = e.focalX;
+      focalStartY.value = e.focalY;
+      runOnJS(notifyZoomed)(true);
+    })
+    .onUpdate((e) => {
+      'worklet';
+      const cx = width / 2;
+      const cy = height / 2;
+      const raw = baseScale.value * e.scale;
+      const newScale = applyRubberBand(raw);
+      const factor = baseScale.value > 0 ? newScale / baseScale.value : 1;
 
-    // raw 是用户手势"想要"的 scale；显示用 applyRubberBand 处理：
-    //   - raw ≥ 1：直接用（上界 clamp 到 MAX_SCALE）
-    //   - raw < 1：进入橡皮筋下界，越捏越费力且不超过 RUBBER_MIN_SCALE
-    // 这样松手前用户就能看到"图变小"的反馈，松手再 spring 回 1（见 ENDED 分支）。
-    const raw = scaleAtGestureStart.current * e.nativeEvent.scale;
-    const newScale = applyRubberBand(raw);
+      // 三个 sharedValue 在同一个 worklet 同帧赋值，绝对不会撕裂
+      scale.value = newScale;
+      translateX.value =
+        e.focalX - cx - factor * (focalStartX.value - cx - baseTX.value);
+      translateY.value =
+        e.focalY - cy - factor * (focalStartY.value - cy - baseTY.value);
+    })
+    .onEnd(() => {
+      'worklet';
+      // 直接用 onUpdate 最后一帧的可视值，不重算——避免跟 e.scale 微小偏差导致松手移位
+      const finalScale = scale.value;
 
-    const startScale = scaleAtGestureStart.current;
-    const factor = startScale > 0 ? newScale / startScale : 1;
-
-    // 锚点项：让"focalStart 处的图像内容"在缩放后仍位于 focalStart
-    const anchorTX =
-      txAtPinchStart.current + (focalStartX.current - cx - txAtPinchStart.current) * (1 - factor);
-    const anchorTY =
-      tyAtPinchStart.current + (focalStartY.current - cy - tyAtPinchStart.current) * (1 - factor);
-
-    // 焦点位移项：手指中点 pinch 过程中本身的平移
-    const panTX = fx - focalStartX.current;
-    const panTY = fy - focalStartY.current;
-
-    const tx = anchorTX + panTX;
-    const ty = anchorTY + panTY;
-
-    savedTX.current = tx;
-    savedTY.current = ty;
-    scale.setValue(newScale);
-    translateX.setValue(tx);
-    translateY.setValue(ty);
-  };
-
-  const onPinchHandlerStateChange = (e: PinchGestureHandlerStateChangeEvent) => {
-    const { state, scale: pinchScale } = e.nativeEvent;
-    if (state === State.BEGAN) {
-      animTokenRef.current++;
-      scaleAtGestureStart.current = baseScale.current;
-      // 一次性锁定起始焦点 + 起始 translate——pinch 过程改"绝对值"算 translate，
-      // 不再帧累积，避免双指中心微抖被无限放大成视觉抖动。
-      focalStartX.current = e.nativeEvent.focalX;
-      focalStartY.current = e.nativeEvent.focalY;
-      txAtPinchStart.current = savedTX.current;
-      tyAtPinchStart.current = savedTY.current;
-      onZoomChange?.(true); // 立即关闭外层水平 swipe，防 pinch 过程中误触翻页
-    }
-    if (e.nativeEvent.oldState === State.ACTIVE) {
-      // 松手时**不再用 Math.max(MIN_SCALE, ...)** 提前夹住——让"用户意图缩到 0.5x"也能进入
-      // 下面的 else 分支触发 spring 回 1。仅上界依然硬 clamp 到 MAX_SCALE。
-      const intended = scaleAtGestureStart.current * pinchScale;
-      const next = Math.min(MAX_SCALE, intended);
-
-      if (next > ZOOMED_EPS) {
-        baseScale.current = next;
-        // 松手时把 translate 收进合法范围（pinch 过程不 clamp，让用户感觉自然，类似 iOS Photos）
-        const c = clampPan(savedTX.current, savedTY.current, next, width, height);
-        savedTX.current = c.tx;
-        savedTY.current = c.ty;
-        Animated.parallel([
-          Animated.spring(translateX, { toValue: c.tx, useNativeDriver: false, friction: 7 }),
-          Animated.spring(translateY, { toValue: c.ty, useNativeDriver: false, friction: 7 }),
-        ]).start();
-        setPanEnabled(true);
-      } else {
-        // next <= 1（含橡皮筋区间的 < 1 和正好 = 1 两种）→ 回弹基线：scale=1 + 平移归零
-        //
-        // 关键：**立刻**同步 baseScale=1 / savedTX=0，不等 spring callback——否则 spring
-        // 进行中如果用户又 pinch 一次，BEGAN 会读到旧的 next（< 1）当 scaleAtGestureStart，
-        // 第二次 pinch 直接从 0.6 起步，肉眼上图就"一直保持很小"。
-        baseScale.current = 1;
-        savedTX.current = 0;
-        savedTY.current = 0;
-        setZoomedState(1);
-        const token = ++animTokenRef.current;
-        Animated.parallel([
-          Animated.spring(scale, { toValue: 1, useNativeDriver: false, friction: 7 }),
-          Animated.spring(translateX, { toValue: 0, useNativeDriver: false, friction: 7 }),
-          Animated.spring(translateY, { toValue: 0, useNativeDriver: false, friction: 7 }),
-        ]).start(() => {
-          if (token !== animTokenRef.current) {
-            return;
-          }
-          // spring 完成时本来就该到 1/0/0，state 已在前面同步过，这里只剩日志位
-        });
-      }
-    }
-  };
-
-  // ---------- Pan ----------
-
-  const onPanGestureEvent = (e: PanGestureHandlerGestureEvent) => {
-    if (baseScale.current <= ZOOMED_EPS) {
-      return;
-    }
-    // 1:1 等比例：手指 dx = 屏幕位移 dx；clamp 实时执行避免拖出边界出现"白边"再弹回
-    const c = clampPan(
-      savedTX.current + e.nativeEvent.translationX,
-      savedTY.current + e.nativeEvent.translationY,
-      baseScale.current,
-      width,
-      height,
-    );
-    translateX.setValue(c.tx);
-    translateY.setValue(c.ty);
-  };
-
-  const onPanHandlerStateChange = (e: PanGestureHandlerStateChangeEvent) => {
-    if (e.nativeEvent.oldState !== State.ACTIVE) {
-      return;
-    }
-    if (baseScale.current <= ZOOMED_EPS) {
-      return;
-    }
-    const c = clampPan(
-      savedTX.current + e.nativeEvent.translationX,
-      savedTY.current + e.nativeEvent.translationY,
-      baseScale.current,
-      width,
-      height,
-    );
-    savedTX.current = c.tx;
-    savedTY.current = c.ty;
-    translateX.setValue(c.tx);
-    translateY.setValue(c.ty);
-  };
-
-  // ---------- Double Tap ----------
-
-  const onDoubleTap = (e: TapGestureHandlerStateChangeEvent) => {
-    if (e.nativeEvent.state !== State.ACTIVE) {
-      return;
-    }
-    const fx = e.nativeEvent.x;
-    const fy = e.nativeEvent.y;
-    const cx = width / 2;
-    const cy = height / 2;
-    const token = ++animTokenRef.current;
-
-    if (baseScale.current > ZOOMED_EPS) {
-      // 已缩放 → 双击复位到 1x，平移归零
-      // 同 ENDED 路径：state **立刻**同步到 1/0/0，spring 只是动画过渡
-      baseScale.current = 1;
-      savedTX.current = 0;
-      savedTY.current = 0;
-      setZoomedState(1);
-      Animated.parallel([
-        Animated.spring(scale, { toValue: 1, useNativeDriver: false, friction: 7 }),
-        Animated.spring(translateX, { toValue: 0, useNativeDriver: false, friction: 7 }),
-        Animated.spring(translateY, { toValue: 0, useNativeDriver: false, friction: 7 }),
-      ]).start(() => {
-        if (token !== animTokenRef.current) {
-          return;
+      if (finalScale > ZOOMED_EPS) {
+        // 保持放大状态——base 立刻锁定到当前显示值，spring 仅用于"边界橡皮筋回弹"
+        const c = clampPan(translateX.value, translateY.value, finalScale, width, height);
+        baseScale.value = finalScale;
+        baseTX.value = c.tx;
+        baseTY.value = c.ty;
+        // 仅当 translate 真的越界（差异 > 0.5px）才启动 spring 回弹；亚像素差异保持原位
+        if (Math.abs(c.tx - translateX.value) > PIXEL_EPS) {
+          translateX.value = withSpring(c.tx, SPRING_CONFIG);
         }
-      });
-      return;
-    }
-
-    // 未缩放 → 以双击点为锚，spring 到 DOUBLE_TAP_SCALE
-    const target = DOUBLE_TAP_SCALE;
-    const factor = target / 1; // s' / s（s=1）
-    const tx0 = savedTX.current; // 通常是 0
-    const ty0 = savedTY.current;
-    let newTx = tx0 + (fx - cx - tx0) * (1 - factor);
-    let newTy = ty0 + (fy - cy - ty0) * (1 - factor);
-    const c = clampPan(newTx, newTy, target, width, height);
-    newTx = c.tx;
-    newTy = c.ty;
-
-    // 双击放大同样**立刻**同步状态，不等 spring 完成——保证下一次 pinch BEGAN
-    // 读到的 baseScale 已经是目标值，不会出现"动画途中又 pinch 走错起点"的现象
-    baseScale.current = target;
-    savedTX.current = newTx;
-    savedTY.current = newTy;
-    setZoomedState(target);
-    Animated.parallel([
-      Animated.spring(scale, { toValue: target, useNativeDriver: false, friction: 7 }),
-      Animated.spring(translateX, { toValue: newTx, useNativeDriver: false, friction: 7 }),
-      Animated.spring(translateY, { toValue: newTy, useNativeDriver: false, friction: 7 }),
-    ]).start(() => {
-      if (token !== animTokenRef.current) {
-        return;
+        if (Math.abs(c.ty - translateY.value) > PIXEL_EPS) {
+          translateY.value = withSpring(c.ty, SPRING_CONFIG);
+        }
+        runOnJS(notifyZoomed)(true);
+      } else {
+        // < 1 或恰好 1 → 弹回 1.0 + 居中
+        // base 立刻同步成 1，spring 是视觉过渡；下次 pinch 起点是 1，不会出现"动画途中
+        // pinch 起点是 0.6"的怪异感
+        baseScale.value = 1;
+        baseTX.value = 0;
+        baseTY.value = 0;
+        scale.value = withSpring(1, SPRING_CONFIG);
+        translateX.value = withSpring(0, SPRING_CONFIG);
+        translateY.value = withSpring(0, SPRING_CONFIG);
+        runOnJS(notifyZoomed)(false);
       }
     });
-  };
 
-  const animatedStyle = {
-    transform: [{ translateX }, { translateY }, { scale }],
-  };
+  // ───────────────────────── Pan（已放大后单指拖动）─────────────────────────
+  //
+  // Race 已经保证 pinch 期间 pan 不会被识别，所以这里**不再需要** pinchActive 守卫
+  // 和 numberOfPointers 检查——逻辑回归到最纯粹的"baseScale > 1 时 1:1 跟手"。
+  const pan = Gesture.Pan()
+    .minPointers(1)
+    .maxPointers(1)
+    .onUpdate((e) => {
+      'worklet';
+      if (baseScale.value <= ZOOMED_EPS) {
+        return;
+      }
+      const c = clampPan(
+        baseTX.value + e.translationX,
+        baseTY.value + e.translationY,
+        baseScale.value,
+        width,
+        height,
+      );
+      translateX.value = c.tx;
+      translateY.value = c.ty;
+    })
+    .onEnd(() => {
+      'worklet';
+      if (baseScale.value <= ZOOMED_EPS) {
+        return;
+      }
+      // 把当前可见 translate 固化进基线
+      baseTX.value = translateX.value;
+      baseTY.value = translateY.value;
+    });
+
+  // ───────────────────────── Double Tap（1x ↔ 2x）─────────────────────────
+  const doubleTap = Gesture.Tap()
+    .numberOfTaps(2)
+    .maxDuration(260)
+    .maxDistance(20)
+    .onEnd((e) => {
+      'worklet';
+      const cx = width / 2;
+      const cy = height / 2;
+
+      if (baseScale.value > ZOOMED_EPS) {
+        // 已放大 → 一键复位
+        baseScale.value = 1;
+        baseTX.value = 0;
+        baseTY.value = 0;
+        scale.value = withSpring(1, SPRING_CONFIG);
+        translateX.value = withSpring(0, SPRING_CONFIG);
+        translateY.value = withSpring(0, SPRING_CONFIG);
+        runOnJS(notifyZoomed)(false);
+        return;
+      }
+
+      // 未放大 → 以双击点为锚放大到 DOUBLE_TAP_SCALE
+      const target = DOUBLE_TAP_SCALE;
+      const newTX = e.x - cx - target * (e.x - cx);
+      const newTY = e.y - cy - target * (e.y - cy);
+      const c = clampPan(newTX, newTY, target, width, height);
+      baseScale.value = target;
+      baseTX.value = c.tx;
+      baseTY.value = c.ty;
+      scale.value = withSpring(target, SPRING_CONFIG);
+      translateX.value = withSpring(c.tx, SPRING_CONFIG);
+      translateY.value = withSpring(c.ty, SPRING_CONFIG);
+      runOnJS(notifyZoomed)(true);
+    });
+
+  // 三者互斥：先识别的赢，其余取消。
+  //
+  // doubleTap 跟 pan 看似冲突（双击瞬间也会有微小手指移动），靠 doubleTap.maxDistance(20)
+  // 卡住——20px 内的两次 tap 优先认 doubleTap，超出 20px 才让 pan 接管。
+  //
+  // pinch 不需要任何 minDistance 兜底——双指落下瞬间 RNGH 就 begin 状态，
+  // 跟单指 pan 先识别的可能性几乎为 0；如果用户单指 pan 一半再加第二指，pan 会保持
+  // 锁定，不会切换到 pinch（这是 Race 行为；主流图片预览也都这样）。
+  const composed = Gesture.Race(doubleTap, pinch, pan);
+
+  const animatedStyle = useAnimatedStyle(() => {
+    'worklet';
+    return {
+      transform: [
+        { translateX: translateX.value },
+        { translateY: translateY.value },
+        { scale: scale.value },
+      ],
+    };
+  });
 
   return (
-    <TapGestureHandler
-      ref={doubleTapRef}
-      numberOfTaps={2}
-      maxDelayMs={260}
-      maxDist={20}
-      simultaneousHandlers={[pinchRef, panRef]}
-      onHandlerStateChange={onDoubleTap}>
-      <Animated.View style={[styles.fill, { width, height }]}>
-        <PinchGestureHandler
-          ref={pinchRef}
-          simultaneousHandlers={[panRef, doubleTapRef]}
-          onGestureEvent={onPinchGestureEvent}
-          onHandlerStateChange={onPinchHandlerStateChange}>
-          <Animated.View style={[styles.fill, { width, height }, animatedStyle]}>
-            <PanGestureHandler
-              ref={panRef}
-              simultaneousHandlers={[pinchRef, doubleTapRef]}
-              enabled={panEnabled}
-              onGestureEvent={onPanGestureEvent}
-              onHandlerStateChange={onPanHandlerStateChange}>
-              <Animated.View style={[styles.fill, { width, height }]}>
-                {children}
-              </Animated.View>
-            </PanGestureHandler>
-          </Animated.View>
-        </PinchGestureHandler>
+    <GestureDetector gesture={composed}>
+      <Animated.View style={[styles.fill, { width, height }, animatedStyle]}>
+        {children}
       </Animated.View>
-    </TapGestureHandler>
+    </GestureDetector>
   );
 }
 
