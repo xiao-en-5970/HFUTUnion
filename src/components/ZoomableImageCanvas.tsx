@@ -124,11 +124,15 @@ export default function ZoomableImageCanvas({
   const baseScale = useRef(1);
   /** pinch 开始那一刻的 scale，用于 e.scale * scaleAtGestureStart 计算新 scale */
   const scaleAtGestureStart = useRef(1);
-  /** pinch 过程中上一帧 scale，用于增量算锚点 */
-  const pinchLastScaleRef = useRef(1);
   /** 上一次手势结束后稳定的 translate */
   const savedTX = useRef(0);
   const savedTY = useRef(0);
+  /** pinch BEGAN 时一次性锁定的焦点起始 + translate 起始——pinch 过程不再帧累积，
+   *  避免双指中心点每帧微抖导致 translate 抖动。详见 onPinchGestureEvent 注释。 */
+  const focalStartX = useRef(0);
+  const focalStartY = useRef(0);
+  const txAtPinchStart = useRef(0);
+  const tyAtPinchStart = useRef(0);
   /** 防 spring 完成回调踩竞态：进了新的手势就把回调忽略 */
   const animTokenRef = useRef(0);
 
@@ -147,9 +151,12 @@ export default function ZoomableImageCanvas({
     animTokenRef.current++;
     baseScale.current = 1;
     scaleAtGestureStart.current = 1;
-    pinchLastScaleRef.current = 1;
     savedTX.current = 0;
     savedTY.current = 0;
+    focalStartX.current = 0;
+    focalStartY.current = 0;
+    txAtPinchStart.current = 0;
+    tyAtPinchStart.current = 0;
     scale.setValue(1);
     translateX.setValue(0);
     translateY.setValue(0);
@@ -159,6 +166,22 @@ export default function ZoomableImageCanvas({
 
   // ---------- Pinch ----------
 
+  // pinch 过程中实时更新 scale + translate。
+  //
+  // 关键设计：**BEGAN 一次性锁定起始焦点**（focalStartX/Y）和起始 translate
+  // （txAtPinchStart/tyAtPinchStart）；pinch 过程中**绝对值**计算 translate，
+  // 不再像旧版那样每帧"增量累加 fx 抖动"——双指中心 fx 在屏幕上有 ±1px 级别的
+  // 微抖，旧的帧累积写法会把这个微抖一直叠加到 savedTX 里，肉眼能看到图像颤。
+  //
+  // 公式（绝对值，无帧累积）：
+  //
+  //   factor = newScale / scaleAtGestureStart            // 跟"开始那一刻"的相对比
+  //   anchorTX = txAtPinchStart + (focalStartX - cx - txAtPinchStart) * (1 - factor)
+  //   panTX    = focalNow - focalStartX                  // pinch 过程中焦点本身的位移
+  //   translateX = anchorTX + panTX
+  //
+  // 抖动如何被吸收：focalStart 是常量（BEGAN 时记下一次），手指漂移只进入 panTX
+  // 项，且 panTX 是手指中点的**绝对位移**，不会随帧抖动累积放大。
   const onPinchGestureEvent = (e: PinchGestureHandlerGestureEvent) => {
     const fx = e.nativeEvent.focalX;
     const fy = e.nativeEvent.focalY;
@@ -172,18 +195,27 @@ export default function ZoomableImageCanvas({
     const raw = scaleAtGestureStart.current * e.nativeEvent.scale;
     const newScale = applyRubberBand(raw);
 
-    const prev = pinchLastScaleRef.current;
-    if (prev > 0) {
-      const factor = newScale / prev;
-      // 锚点公式：tx' = tx + (fx - cx - tx) * (1 - s'/s)
-      // 屏幕坐标视图下 translate 跟缩放解耦，这条公式让"焦点处图像内容"在屏幕上不动
-      savedTX.current += (fx - cx - savedTX.current) * (1 - factor);
-      savedTY.current += (fy - cy - savedTY.current) * (1 - factor);
-    }
-    pinchLastScaleRef.current = newScale;
+    const startScale = scaleAtGestureStart.current;
+    const factor = startScale > 0 ? newScale / startScale : 1;
+
+    // 锚点项：让"focalStart 处的图像内容"在缩放后仍位于 focalStart
+    const anchorTX =
+      txAtPinchStart.current + (focalStartX.current - cx - txAtPinchStart.current) * (1 - factor);
+    const anchorTY =
+      tyAtPinchStart.current + (focalStartY.current - cy - tyAtPinchStart.current) * (1 - factor);
+
+    // 焦点位移项：手指中点 pinch 过程中本身的平移
+    const panTX = fx - focalStartX.current;
+    const panTY = fy - focalStartY.current;
+
+    const tx = anchorTX + panTX;
+    const ty = anchorTY + panTY;
+
+    savedTX.current = tx;
+    savedTY.current = ty;
     scale.setValue(newScale);
-    translateX.setValue(savedTX.current);
-    translateY.setValue(savedTY.current);
+    translateX.setValue(tx);
+    translateY.setValue(ty);
   };
 
   const onPinchHandlerStateChange = (e: PinchGestureHandlerStateChangeEvent) => {
@@ -191,7 +223,12 @@ export default function ZoomableImageCanvas({
     if (state === State.BEGAN) {
       animTokenRef.current++;
       scaleAtGestureStart.current = baseScale.current;
-      pinchLastScaleRef.current = baseScale.current;
+      // 一次性锁定起始焦点 + 起始 translate——pinch 过程改"绝对值"算 translate，
+      // 不再帧累积，避免双指中心微抖被无限放大成视觉抖动。
+      focalStartX.current = e.nativeEvent.focalX;
+      focalStartY.current = e.nativeEvent.focalY;
+      txAtPinchStart.current = savedTX.current;
+      tyAtPinchStart.current = savedTY.current;
       onZoomChange?.(true); // 立即关闭外层水平 swipe，防 pinch 过程中误触翻页
     }
     if (e.nativeEvent.oldState === State.ACTIVE) {
@@ -202,7 +239,6 @@ export default function ZoomableImageCanvas({
 
       if (next > ZOOMED_EPS) {
         baseScale.current = next;
-        pinchLastScaleRef.current = next;
         // 松手时把 translate 收进合法范围（pinch 过程不 clamp，让用户感觉自然，类似 iOS Photos）
         const c = clampPan(savedTX.current, savedTY.current, next, width, height);
         savedTX.current = c.tx;
@@ -214,8 +250,14 @@ export default function ZoomableImageCanvas({
         setPanEnabled(true);
       } else {
         // next <= 1（含橡皮筋区间的 < 1 和正好 = 1 两种）→ 回弹基线：scale=1 + 平移归零
+        //
+        // 关键：**立刻**同步 baseScale=1 / savedTX=0，不等 spring callback——否则 spring
+        // 进行中如果用户又 pinch 一次，BEGAN 会读到旧的 next（< 1）当 scaleAtGestureStart，
+        // 第二次 pinch 直接从 0.6 起步，肉眼上图就"一直保持很小"。
+        baseScale.current = 1;
         savedTX.current = 0;
         savedTY.current = 0;
+        setZoomedState(1);
         const token = ++animTokenRef.current;
         Animated.parallel([
           Animated.spring(scale, { toValue: 1, useNativeDriver: false, friction: 7 }),
@@ -225,9 +267,7 @@ export default function ZoomableImageCanvas({
           if (token !== animTokenRef.current) {
             return;
           }
-          baseScale.current = 1;
-          pinchLastScaleRef.current = 1;
-          setZoomedState(1);
+          // spring 完成时本来就该到 1/0/0，state 已在前面同步过，这里只剩日志位
         });
       }
     }
@@ -285,6 +325,11 @@ export default function ZoomableImageCanvas({
 
     if (baseScale.current > ZOOMED_EPS) {
       // 已缩放 → 双击复位到 1x，平移归零
+      // 同 ENDED 路径：state **立刻**同步到 1/0/0，spring 只是动画过渡
+      baseScale.current = 1;
+      savedTX.current = 0;
+      savedTY.current = 0;
+      setZoomedState(1);
       Animated.parallel([
         Animated.spring(scale, { toValue: 1, useNativeDriver: false, friction: 7 }),
         Animated.spring(translateX, { toValue: 0, useNativeDriver: false, friction: 7 }),
@@ -293,11 +338,6 @@ export default function ZoomableImageCanvas({
         if (token !== animTokenRef.current) {
           return;
         }
-        baseScale.current = 1;
-        pinchLastScaleRef.current = 1;
-        savedTX.current = 0;
-        savedTY.current = 0;
-        setZoomedState(1);
       });
       return;
     }
@@ -313,6 +353,12 @@ export default function ZoomableImageCanvas({
     newTx = c.tx;
     newTy = c.ty;
 
+    // 双击放大同样**立刻**同步状态，不等 spring 完成——保证下一次 pinch BEGAN
+    // 读到的 baseScale 已经是目标值，不会出现"动画途中又 pinch 走错起点"的现象
+    baseScale.current = target;
+    savedTX.current = newTx;
+    savedTY.current = newTy;
+    setZoomedState(target);
     Animated.parallel([
       Animated.spring(scale, { toValue: target, useNativeDriver: false, friction: 7 }),
       Animated.spring(translateX, { toValue: newTx, useNativeDriver: false, friction: 7 }),
@@ -321,11 +367,6 @@ export default function ZoomableImageCanvas({
       if (token !== animTokenRef.current) {
         return;
       }
-      baseScale.current = target;
-      pinchLastScaleRef.current = target;
-      savedTX.current = newTx;
-      savedTY.current = newTy;
-      setZoomedState(target);
     });
   };
 
