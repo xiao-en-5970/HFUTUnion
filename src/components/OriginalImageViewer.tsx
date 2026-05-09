@@ -414,12 +414,16 @@ export default function OriginalImageViewer({
             <Ionicons name="close" size={30} color="#fff" />
           </TouchableOpacity>
 
-          {/* Gallery 负责 pinch / pan / 双击 / 翻页 / 下拉关闭 */}
+          {/* Gallery 负责 pinch / pan / 双击 / 翻页 */}
+          {/* disableVerticalSwipe 配合 patches/react-native-awesome-gallery+0.4.3.patch */}
+          {/* 彻底禁用垂直 pan——库默认在 pinch 缩放过程中（scale ≠ 1）仍累积 translationY， */}
+          {/* 表现为"放大松手下移 / 缩小松手上移几像素"。patch 让 disableVerticalSwipe 在 */}
+          {/* 任何 scale 下都生效；副作用是失去下拉关闭功能（用左上角 X 按钮代替）。 */}
           <Gallery
             data={uris}
             initialIndex={initialIndex}
             onIndexChange={setPage}
-            onSwipeToClose={onRequestClose}
+            disableVerticalSwipe
             keyExtractor={(item, idx) => `${item}-${idx}`}
             doubleTapScale={2}
             maxScale={6}

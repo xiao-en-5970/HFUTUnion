@@ -1,0 +1,18 @@
+diff --git a/node_modules/react-native-awesome-gallery/src/index.tsx b/node_modules/react-native-awesome-gallery/src/index.tsx
+index 4aa4c54..96a2e03 100644
+--- a/node_modules/react-native-awesome-gallery/src/index.tsx
++++ b/node_modules/react-native-awesome-gallery/src/index.tsx
+@@ -561,8 +561,11 @@ const ResizableImage = React.memo(
+       .onUpdate(({ translationX, translationY, velocityY }) => {
+         'worklet';
+         if (!isActive.value) return;
+-        if (disableVerticalSwipe && scale.value === 1 && isVertical.value)
+-          return;
++        // Patch (HFUTUnion): 原条件 `scale.value === 1` 让 disableVerticalSwipe 仅在
++        // scale=1 时禁用 vertical pan，但 pinch 缩放过程中 scale 一直在变（≠1），导致
++        // pan 累积 translationY，松手时表现为"放大下移 / 缩小上移几像素"。
++        // 改成 disableVerticalSwipe 时**任何 scale 都禁用**，彻底消除 pinch 副作用。
++        if (disableVerticalSwipe && isVertical.value) return;
+ 
+         const x = getEdgeX();
+ 

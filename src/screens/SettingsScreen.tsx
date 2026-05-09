@@ -1,12 +1,29 @@
-import React, { useCallback } from 'react';
-import { View, Text, StyleSheet, Switch, ScrollView } from 'react-native';
+import React, { useCallback, useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Switch,
+  ScrollView,
+  TouchableOpacity,
+  ActivityIndicator,
+  Alert,
+} from 'react-native';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 import Screen from '../components/Screen';
+import UpdateDialog from '../components/UpdateDialog';
 import { colors, radius, space } from '../theme/colors';
 import {
   useNotifSettings,
   updateNotifSettings,
   type NotifSettings,
 } from '../utils/notifSettings';
+import {
+  getCurrentVersionCode,
+  getCurrentVersionName,
+  type UpdateCheckResult,
+} from '../utils/appUpdate';
+import { fetchAppLatestVersion } from '../api/appUpdate';
 
 type Group = {
   title: string;
@@ -62,6 +79,43 @@ export default function SettingsScreen() {
     await updateNotifSettings({ [k]: v } as Partial<NotifSettings>);
   }, []);
 
+  // 用户主动检查更新——跟 App 启动时的 checkForUpdate 不同：
+  //   - 启动时被忽略列表拦截过的版本，这里依然要弹（用户主动检查 = 表达意愿）
+  //   - 已是最新版本时给明确反馈"当前已是最新"，而不是静默
+  //   - 接口失败也给明确反馈
+  const [checking, setChecking] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult>(null);
+
+  const onCheckUpdate = useCallback(async () => {
+    if (checking) return;
+    setChecking(true);
+    try {
+      const latest = await fetchAppLatestVersion();
+      if (!latest) {
+        Alert.alert('检查失败', '无法获取版本信息，请检查网络后重试');
+        return;
+      }
+      const currentVersionName = getCurrentVersionName();
+      const currentVersionCode = getCurrentVersionCode();
+      if (latest.version_code <= currentVersionCode) {
+        Alert.alert('已是最新版本', `当前版本 v${currentVersionName}`);
+        return;
+      }
+      // 有新版本——绕过忽略列表，直接弹 UpdateDialog
+      setUpdateInfo({
+        ...latest,
+        currentVersionName,
+        currentVersionCode,
+      });
+    } catch {
+      Alert.alert('检查失败', '请稍后再试');
+    } finally {
+      setChecking(false);
+    }
+  }, [checking]);
+
+  const currentVersionName = getCurrentVersionName();
+
   return (
     <Screen scroll={false}>
       <ScrollView contentContainerStyle={styles.scroll}>
@@ -82,7 +136,33 @@ export default function SettingsScreen() {
             </View>
           </View>
         ))}
+
+        {/* 关于：检查更新——放在设置页最底部 */}
+        <View style={styles.group}>
+          <Text style={styles.groupTitle}>关于</Text>
+          <View style={styles.card}>
+            <TouchableOpacity
+              style={styles.row}
+              activeOpacity={0.7}
+              onPress={onCheckUpdate}
+              disabled={checking}>
+              <View style={styles.rowText}>
+                <Text style={styles.rowLabel}>检查更新</Text>
+                <Text style={styles.rowSub}>当前版本 v{currentVersionName}</Text>
+              </View>
+              {checking ? (
+                <ActivityIndicator size="small" color={colors.primary} />
+              ) : (
+                <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
       </ScrollView>
+
+      {updateInfo ? (
+        <UpdateDialog info={updateInfo} onClose={() => setUpdateInfo(null)} />
+      ) : null}
     </Screen>
   );
 }
@@ -106,5 +186,6 @@ const styles = StyleSheet.create({
   },
   rowText: { flex: 1, marginRight: 12 },
   rowLabel: { fontSize: 15, color: colors.text, fontWeight: '600' },
+  rowSub: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
   sep: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border, marginLeft: space.md },
 });
