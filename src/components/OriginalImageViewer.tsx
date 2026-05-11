@@ -23,6 +23,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Gallery from 'react-native-awesome-gallery';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from 'react-native-vector-icons/Ionicons';
+import RNFS from 'react-native-fs';
 import { colors } from '../theme/colors';
 import { originalImageUrl, thumbnailImageUrl } from '../utils/imageUrl';
 import { downloadImageAsDataUrl } from '../utils/imageDownload';
@@ -55,7 +56,16 @@ type SlideState = {
   /** 当前应显示的缩略图 url（缩略图不存在时回落到原图本身） */
   thumbSrc: string;
   thumbMissing: boolean;
-  /** 高清原图 dataURL，下载完成后填充；触发淡入动画 */
+  /**
+   * 高清原图本地 file:// URL——下载完成后把 base64 落到 cache 目录得到的路径。
+   *
+   * 为什么不直接给 Image 喂 dataURL：RN 0.7x 在 iOS/Android 上对几 MB 的 base64
+   * dataURL 都有渲染失败问题（跨桥传超长字符串 + Image 内部 base64 解码栈未走主路径），
+   * 表现就是 Image 不画图但 onError 也不触发——用户点"查看原图"后看到的是进度条跑完
+   * 但仍然是缩略图。改用 file:// URL 走 native 文件加载是最稳的。
+   */
+  fullLocalUri: string | null;
+  /** 高清原图 dataURL——保留给"保存到相册"复用，避免重复下载消耗用户流量 */
   fullDataUri: string | null;
   loading: boolean;
   progress: number;
@@ -68,12 +78,34 @@ function makeInitState(uri: string, orig: string): SlideState {
   return {
     thumbSrc: thumbnailImageUrl(uri) || uri,
     thumbMissing: false,
+    fullLocalUri: null,
     fullDataUri: null,
     loading: false,
     progress: 0,
     lengthUnknown: false,
     saving: false,
   };
+}
+
+/**
+ * dataUrlToBase64AndExt 取 dataURL 的 base64 + 文件扩展名（jpg/png）。
+ * 跟 utils/saveImageToGallery 里同名 helper 一致，本地复制一份避免新增 export。
+ */
+function dataUrlToBase64AndExt(dataUrl: string): { base64: string; ext: string } {
+  const comma = dataUrl.indexOf(',');
+  const meta = comma >= 0 ? dataUrl.slice(0, comma) : '';
+  const base64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+  const ext = meta.includes('png') ? 'png' : 'jpg';
+  return { base64, ext };
+}
+
+/** stableHash 给同一 origUri 算个稳定字符串，用作本地 cache 文件名——避免重复写。 */
+function stableHash(input: string): string {
+  let h = 5381;
+  for (let i = 0; i < input.length; i++) {
+    h = ((h << 5) + h + input.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h).toString(36);
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -98,9 +130,9 @@ function ViewerSlide({
   const thumbTone = useRef(new Animated.Value(1)).current;
   const reportedDimsRef = useRef(false);
 
-  // fullDataUri 出现时执行淡入；离开（如果出现重置场景）则归零
+  // 原图就绪（fullLocalUri 出现）时执行淡入；离开则归零
   useEffect(() => {
-    if (state.fullDataUri) {
+    if (state.fullLocalUri) {
       Animated.parallel([
         Animated.timing(thumbTone, {
           toValue: 1,
@@ -117,7 +149,7 @@ function ViewerSlide({
     } else {
       fadeAnim.setValue(0);
     }
-  }, [state.fullDataUri, fadeAnim, thumbTone]);
+  }, [state.fullLocalUri, fadeAnim, thumbTone]);
 
   // loading 变化时让 thumb 略变暗——给用户"正在加载原图"的视觉反馈
   useEffect(() => {
@@ -156,10 +188,10 @@ function ViewerSlide({
             }}
           />
         </Animated.View>
-        {state.fullDataUri ? (
+        {state.fullLocalUri ? (
           <Animated.View style={[styles.layer, { opacity: fadeAnim }]}>
             <Image
-              source={{ uri: state.fullDataUri }}
+              source={{ uri: state.fullLocalUri }}
               style={styles.image}
               resizeMode="contain"
             />
@@ -300,7 +332,13 @@ export default function OriginalImageViewer({
     }));
   }, []);
 
-  // 触发"下载并淡入高清"——不阻塞 UI；进度通过 updateSlide 报告
+  // 跟踪所有写到本地 cache 的临时文件——Modal 关闭时一起清理，避免长期堆积
+  const localCacheFilesRef = useRef<string[]>([]);
+
+  // 触发"下载并淡入高清"——不阻塞 UI；进度通过 updateSlide 报告。
+  //
+  // 关键步骤：下载完成的 base64 立刻落到 cache 目录得到 file:// URL，再喂给 Image。
+  // 避免直接给 Image 喂几 MB 的 base64 dataURL 导致渲染失败（详见 SlideState.fullLocalUri 注释）。
   const loadOriginal = useCallback(
     async (uri: string) => {
       const orig = origMap[uri];
@@ -335,7 +373,18 @@ export default function OriginalImageViewer({
             });
           }
         });
-        updateSlide(uri, { fullDataUri: data, progress: 1 });
+        // 把 base64 落到 cache 文件——这是 Image 能稳定渲染的关键
+        const { base64, ext } = dataUrlToBase64AndExt(data);
+        const filename = `hfut_view_${stableHash(orig)}_${Date.now()}.${ext}`;
+        const path = `${RNFS.CachesDirectoryPath}/${filename}`;
+        await RNFS.writeFile(path, base64, 'base64');
+        const localUri = path.startsWith('file://') ? path : `file://${path}`;
+        localCacheFilesRef.current.push(path);
+        updateSlide(uri, {
+          fullDataUri: data,
+          fullLocalUri: localUri,
+          progress: 1,
+        });
       } catch (e: any) {
         Alert.alert('加载失败', e?.message || '请重试', [
           { text: '取消', style: 'cancel' },
@@ -352,6 +401,19 @@ export default function OriginalImageViewer({
     },
     [origMap, updateSlide],
   );
+
+  // Modal 卸载时清理 cache 文件——这些是用户会话内临时落地的高清原图，
+  // 关掉 viewer 就没必要保留；下次再点"查看原图"会重新写。
+  // 注意：localCacheFilesRef 是组件级的 ref，组件 unmount 时同步清理。
+  useEffect(() => {
+    return () => {
+      const files = localCacheFilesRef.current.slice();
+      localCacheFilesRef.current = [];
+      files.forEach((p) => {
+        RNFS.unlink(p).catch(() => {});
+      });
+    };
+  }, []);
 
   // 保存当前图到相册
   const onDownload = useCallback(
@@ -387,11 +449,12 @@ export default function OriginalImageViewer({
   const cur = perUri[currentUri];
   const orig = origMap[currentUri];
   const hasSeparateThumb = cur?.thumbSrc !== orig;
+  // HD 按钮：当前页有缩略图、原图还没就绪（fullLocalUri 为空）、且没在加载中
   const showHd =
     !!cur &&
     hasSeparateThumb &&
     !cur.thumbMissing &&
-    !cur.fullDataUri &&
+    !cur.fullLocalUri &&
     !cur.loading &&
     !!orig;
   const footerLift = uris.length > 1 ? 36 : 0;
