@@ -6,14 +6,41 @@ export const EXT_TYPE_QUESTION = 2;
 export const EXT_TYPE_ANSWER = 3;
 export const EXT_TYPE_GOODS = 4;
 
-export type CommentAuthor = {
+/** AccountType: 1 普通账号；2 QQ 旗下号（"QQ 智能体"标签由前端按这个字段判断） */
+export const ACCOUNT_TYPE_NORMAL = 1;
+export const ACCOUNT_TYPE_QQ_CHILD = 2;
+
+/**
+ * AuthorInfo 通用作者卡片字段集——所有列表 / 评论 / 详情接口返回的作者信息都用这个结构。
+ *
+ * 展示约定：
+ *   - nickname 是"对外展示名"；后端 fallback 到 username（永远非空）
+ *   - avatar 是完整 URL；后端会把 QQ 头像（q.qlogo.cn）或自上传头像统一吐回来
+ *   - account_type = 2 → 前端给作者卡片打 "QQ 智能体" tag
+ *   - parent_user_id 非空（QQ 旗下号挂主账号）→ 前端在个人展示页展示 "关联自「parent_nickname」"
+ *     且 parent_nickname 可点击跳转到主账号的 UserProfile 页
+ *   - from_user_id / from_username 是老字段，仅做兼容；新代码用 parent_*
+ */
+export type AuthorInfo = {
   id: number;
   username: string;
+  nickname?: string;
   avatar?: string;
-  /** 仅当该评论作者为非孤儿 QQ 旗下号时，由后端 enrich 填入；前端用来拼"（来自用户 xxx）" */
+
+  /** 1 普通 / 2 QQ 旗下号 */
+  account_type?: number;
+  /** 旗下号挂的主账号 user_id（非孤儿） */
+  parent_user_id?: number;
+  /** 旗下号挂的主账号展示名 */
+  parent_nickname?: string;
+
+  /** 老字段——兼容已发布客户端，不要在新逻辑里使用 */
   from_user_id?: number;
   from_username?: string;
 };
+
+/** CommentAuthor 等价于 AuthorInfo——保留旧名字给已有调用方 */
+export type CommentAuthor = AuthorInfo;
 
 export type CommentItem = {
   id: number;
@@ -25,8 +52,8 @@ export type CommentItem = {
   type?: number;
   like_count?: number;
   created_at?: string;
-  author?: CommentAuthor;
-  reply_to_author?: CommentAuthor;
+  author?: AuthorInfo;
+  reply_to_author?: AuthorInfo;
   reply_count?: number;
   is_liked?: boolean;
   top_replies?: CommentItem[];

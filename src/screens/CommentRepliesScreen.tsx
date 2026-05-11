@@ -26,6 +26,7 @@ import Screen from '../components/Screen';
 import PrimaryButton from '../components/PrimaryButton';
 import { colors, radius, space } from '../theme/colors';
 import { formatAuthorName } from '../utils/authorName';
+import AuthorChip from '../components/AuthorChip';
 
 const PAGE_SIZE = 20;
 
@@ -186,17 +187,21 @@ export default function CommentRepliesScreen({ route, navigation }: any) {
       onPress={() => handleReplyTo(item)}
       style={styles.row}>
       <View style={styles.rowTop}>
-        <Text style={styles.author}>
-          {formatAuthorName(item.author)}
+        <View style={styles.authorRow}>
+          <AuthorChip author={item.author as any} size="sm" />
           {item.reply_to_author ? (
-            <Text style={styles.arrow}>
-              {' \u25B8 '}
-              <Text style={styles.targetUser}>
-                {formatAuthorName(item.reply_to_author)}
-              </Text>
-            </Text>
+            <>
+              <Text style={styles.arrow}>{' \u25B8 '}</Text>
+              <AuthorChip
+                author={item.reply_to_author as any}
+                size="sm"
+                nameOnly
+                showQQTag={false}
+                nameColor={colors.primary}
+              />
+            </>
           ) : null}
-        </Text>
+        </View>
         <TouchableOpacity
           onPress={() => toggleLike(item)}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -324,6 +329,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border,
   },
+  authorRow: { flexDirection: 'row', alignItems: 'center', flexShrink: 1 },
   rowTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',

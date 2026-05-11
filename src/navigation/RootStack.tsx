@@ -30,6 +30,8 @@ import MapPickerScreen from '../screens/MapPickerScreen';
 import MapRouteScreen from '../screens/MapRouteScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import MessagesScreen from '../screens/MessagesScreen';
+import UserProfileScreen from '../screens/UserProfileScreen';
+import FollowListScreen from '../screens/FollowListScreen';
 import type { LngLat } from '../utils/mapHtml';
 
 export type RootStackParamList = {
@@ -86,6 +88,8 @@ export type RootStackParamList = {
   };
   Settings: undefined;
   Messages: undefined;
+  UserProfile: { userId: number };
+  FollowList: { userId: number; mode: 'followers' | 'following' };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -149,6 +153,8 @@ export default function RootStack() {
       <Stack.Screen name="MapRoute" component={MapRouteScreen} options={{ title: '路线' }} />
       <Stack.Screen name="Settings" component={SettingsScreen} options={{ title: '设置' }} />
       <Stack.Screen name="Messages" component={MessagesScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="UserProfile" component={UserProfileScreen} options={{ title: '主页' }} />
+      <Stack.Screen name="FollowList" component={FollowListScreen} options={{ title: '关注 / 粉丝' }} />
     </Stack.Navigator>
   );
 }

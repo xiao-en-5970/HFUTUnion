@@ -24,6 +24,7 @@ import { colors, radius, space } from '../theme/colors';
 import { cacheGet, cacheSet } from '../utils/cacheStorage';
 import { markViewed } from '../utils/viewedTracker';
 import { formatAuthorName } from '../utils/authorName';
+import AuthorChip from '../components/AuthorChip';
 
 const EXT_Q = 2;
 
@@ -266,7 +267,9 @@ export default function QuestionDetailScreen({ route, navigation }: any) {
           />
         </View>
         <Text style={styles.title}>{q.title}</Text>
-        <Text style={styles.meta}>{formatAuthorName(q.author)}</Text>
+        <View style={{ marginTop: 8 }}>
+          <AuthorChip author={q.author as any} size="md" />
+        </View>
         <Text style={styles.body}>{q.content}</Text>
         {q.images?.length ? (
           <View style={styles.images}>
@@ -297,7 +300,7 @@ export default function QuestionDetailScreen({ route, navigation }: any) {
               compact
             />
             <View style={styles.ansHead}>
-              <Text style={styles.ansAuthor}>{formatAuthorName(a.author)}</Text>
+              <AuthorChip author={a.author as any} size="sm" />
             </View>
             <Text numberOfLines={3} style={styles.ansBody}>
               {a.content || a.title}

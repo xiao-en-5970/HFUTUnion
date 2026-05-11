@@ -29,6 +29,7 @@ import { resolveCurrentUserId } from '../utils/userId';
 import { markViewed } from '../utils/viewedTracker';
 import { isDeadlineExpired, renderDeadlineBadge } from '../utils/deadline';
 import { formatAuthorName } from '../utils/authorName';
+import AuthorChip from '../components/AuthorChip';
 import { formatGoodPrice } from '../utils/goodPrice';
 
 const EXT_GOODS = 4;
@@ -516,7 +517,7 @@ export default function GoodDetailScreen({ route }: any) {
         <Text style={styles.body}>{g.content}</Text>
         <View style={styles.seller}>
           <Text style={styles.sellerLabel}>{isHelp ? '发布者' : '卖家'}</Text>
-          <Text style={styles.sellerName}>{formatAuthorName(g.author, '匿名')}</Text>
+          <AuthorChip author={g.author as any} size="md" fallback="匿名" />
         </View>
         {isOwnGood ? (
           <Text style={styles.ownGoodHint}>

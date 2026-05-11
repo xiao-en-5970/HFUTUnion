@@ -21,6 +21,7 @@ import LoadingMask from '../components/LoadingMask';
 import { colors, radius, space } from '../theme/colors';
 import { cacheGet, cacheSet } from '../utils/cacheStorage';
 import { formatAuthorName } from '../utils/authorName';
+import AuthorChip from '../components/AuthorChip';
 import {
   PAGE_SIZE,
   mergeSearchItems,
@@ -316,9 +317,7 @@ export default function HomeScreen() {
                 compact
               />
               <View style={styles.cardTop}>
-                <Text style={styles.author} numberOfLines={1}>
-                  {formatAuthorName(item.author)}
-                </Text>
+                <AuthorChip author={item.author as any} size="xs" />
               </View>
               <Text style={styles.cardTitle} numberOfLines={2}>
                 {item.title || item.content?.slice(0, 80) || '(无标题)'}

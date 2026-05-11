@@ -22,6 +22,7 @@ import CreateFab from '../components/CreateFab';
 import { colors, radius, space } from '../theme/colors';
 import { PAGE_SIZE, mergeById, hasMorePages } from '../utils/pagination';
 import { formatAuthorName } from '../utils/authorName';
+import AuthorChip from '../components/AuthorChip';
 import { markViewed, useViewedSet } from '../utils/viewedTracker';
 import { renderDeadlineBadge, isDeadlineExpired } from '../utils/deadline';
 import { formatGoodPrice } from '../utils/goodPrice';
@@ -242,9 +243,12 @@ export default function HelpFeedScreen() {
               {q.content.trim()}
             </Text>
           ) : null}
-          <Text style={[styles.meta, viewed && styles.textMuted]}>
-            {formatAuthorName(q.author)} · {q.answer_count ?? 0} 回答
-          </Text>
+          <View style={styles.authorLineRow}>
+            <AuthorChip author={q.author as any} size="xs" />
+            <Text style={[styles.meta, viewed && styles.textMuted]}>
+              {' · '}{q.answer_count ?? 0} 回答
+            </Text>
+          </View>
         </TouchableOpacity>
       );
     }
@@ -298,9 +302,7 @@ export default function HelpFeedScreen() {
                 const t = formatGoodPrice(g.price, g.negotiable, g.goods_category);
                 return t ? <Text style={styles.price}>{t}</Text> : null;
               })()}
-              <Text style={[styles.meta, viewed && styles.textMuted]} numberOfLines={1}>
-                {formatAuthorName(g.author, '发布者')}
-              </Text>
+              <AuthorChip author={g.author as any} size="xs" fallback="发布者" />
             </View>
           </View>
         </View>
@@ -453,10 +455,12 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg,
   },
   goodBody: { flex: 1 },
+  authorLineRow: { marginTop: 6, flexDirection: 'row', alignItems: 'center' },
   priceRow: {
     marginTop: 6,
     flexDirection: 'row',
-    alignItems: 'baseline',
+    alignItems: 'center',
+    flexWrap: 'wrap',
     gap: 8,
     justifyContent: 'space-between',
   },

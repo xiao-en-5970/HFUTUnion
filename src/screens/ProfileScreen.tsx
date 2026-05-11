@@ -180,7 +180,37 @@ export default function ProfileScreen() {
           onPress={() => { setPreviewType('avatar'); setPreviewVisible(true); }}>
           <Image source={avatarSource} style={styles.avatar} />
         </TouchableOpacity>
-        <Text style={styles.username}>{user.username}</Text>
+        <Text style={styles.username}>{user.nickname || user.username}</Text>
+        {user.bio ? (
+          <Text style={styles.bio} numberOfLines={2}>{user.bio}</Text>
+        ) : null}
+
+        {/* 关注 / 粉丝量入口——点击跳到 FollowList 屏幕；UserProfileScreen 入口让自己也能预览公开页 */}
+        <View style={styles.statsRow}>
+          <TouchableOpacity
+            style={styles.statItem}
+            activeOpacity={0.7}
+            onPress={() => user.id && navigation.navigate('FollowList', { userId: user.id, mode: 'following' })}>
+            <Text style={styles.statValue}>{Number(user.follow_count) || 0}</Text>
+            <Text style={styles.statLabel}>关注</Text>
+          </TouchableOpacity>
+          <View style={styles.statDivider} />
+          <TouchableOpacity
+            style={styles.statItem}
+            activeOpacity={0.7}
+            onPress={() => user.id && navigation.navigate('FollowList', { userId: user.id, mode: 'followers' })}>
+            <Text style={styles.statValue}>{Number(user.fans_count) || 0}</Text>
+            <Text style={styles.statLabel}>粉丝</Text>
+          </TouchableOpacity>
+          <View style={styles.statDivider} />
+          <TouchableOpacity
+            style={styles.statItem}
+            activeOpacity={0.7}
+            onPress={() => user.id && navigation.navigate('UserProfile', { userId: user.id })}>
+            <Ionicons name="eye-outline" size={18} color={colors.primary} />
+            <Text style={styles.statLabel}>主页预览</Text>
+          </TouchableOpacity>
+        </View>
         {schoolVerified ? (
           <View style={styles.schoolBlock}>
             <Text style={styles.school}>{user.school_name || '已绑定学校'}</Text>
@@ -329,6 +359,25 @@ const styles = StyleSheet.create({
     color: colors.text,
     marginTop: 12,
   },
+  bio: {
+    textAlign: 'center',
+    fontSize: 13,
+    color: colors.textSecondary,
+    paddingHorizontal: space.lg,
+    marginTop: 6,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'center',
+    marginTop: space.md,
+    paddingVertical: space.xs,
+    paddingHorizontal: space.md,
+  },
+  statItem: { alignItems: 'center', paddingHorizontal: space.md, minWidth: 78 },
+  statValue: { fontSize: 18, fontWeight: '700', color: colors.text },
+  statLabel: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
+  statDivider: { width: 1, height: 22, backgroundColor: colors.border },
   schoolBlock: {
     marginTop: 8,
     alignItems: 'center',

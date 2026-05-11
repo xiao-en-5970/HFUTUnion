@@ -37,6 +37,7 @@ import { colors, radius, space } from '../theme/colors';
 import { cacheGet, cacheSet } from '../utils/cacheStorage';
 import { markViewed } from '../utils/viewedTracker';
 import { formatAuthorName } from '../utils/authorName';
+import AuthorChip from '../components/AuthorChip';
 import type { RootStackParamList } from '../navigation/RootStack';
 
 const EXT_POST = 1;
@@ -330,11 +331,14 @@ export default function PostDetailScreen({ route }: any) {
   const ListHeader = (
     <View style={styles.pad}>
       <Text style={styles.title}>{post.title}</Text>
-      <Text style={styles.meta}>
-        {formatAuthorName(post.author)} · {post.like_count ?? 0} 赞
-        {post.view_count != null ? ` · ${post.view_count} 浏览` : ''}
-        {post.collect_count != null ? ` · ${post.collect_count} 收藏` : ''}
-      </Text>
+      <View style={styles.authorRow}>
+        <AuthorChip author={post.author as any} size="md" />
+        <Text style={styles.metaInline}>
+          {' · '}{post.like_count ?? 0} 赞
+          {post.view_count != null ? ` · ${post.view_count} 浏览` : ''}
+          {post.collect_count != null ? ` · ${post.collect_count} 收藏` : ''}
+        </Text>
+      </View>
       <Text style={styles.body}>{post.content}</Text>
       {post.images?.length ? (
         <View style={styles.images}>
@@ -373,8 +377,8 @@ export default function PostDetailScreen({ route }: any) {
   const renderComment = ({ item: c }: { item: CommentItem }) => (
     <View style={styles.cmtBlock}>
       <TouchableOpacity activeOpacity={0.7} onPress={() => handleReplyTo(c, true)} style={styles.cmtRow}>
+        <AuthorChip author={c.author as any} size="sm" />
         <View style={styles.cmtMain}>
-          <Text style={styles.cmtUser}>{formatAuthorName(c.author)}</Text>
           <Text style={styles.cmtBody}>{c.content}</Text>
         </View>
         <TouchableOpacity onPress={() => toggleCommentLike(c)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={styles.likeBtn}>
@@ -389,16 +393,21 @@ export default function PostDetailScreen({ route }: any) {
           activeOpacity={0.7}
           onPress={() => handleReplyTo(r, false)}
           style={styles.previewRow}>
+          <AuthorChip author={r.author as any} size="xs" />
           <View style={styles.cmtMain}>
-            <Text style={styles.cmtUser}>
-              {formatAuthorName(r.author)}
-              {r.reply_to_author ? (
-                <Text style={styles.replyArrow}>
-                  {' \u25B8 '}
-                  <Text style={styles.replyTargetUser}>{formatAuthorName(r.reply_to_author)}</Text>
-                </Text>
-              ) : null}
-            </Text>
+            {r.reply_to_author ? (
+              <View style={styles.replyTargetRow}>
+                <Text style={styles.replyArrow}>{'\u25B8 '}</Text>
+                <AuthorChip
+                  author={r.reply_to_author as any}
+                  size="xs"
+                  nameOnly
+                  showQQTag={false}
+                  nameSize={12}
+                  nameColor={colors.primary}
+                />
+              </View>
+            ) : null}
             <Text style={styles.cmtBody} numberOfLines={2}>{r.content}</Text>
           </View>
           <TouchableOpacity
@@ -499,10 +508,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     paddingVertical: 10,
+    gap: 10,
   },
   cmtMain: { flex: 1 },
   cmtUser: { fontSize: 13, fontWeight: '600', color: colors.primary },
   cmtBody: { marginTop: 4, fontSize: 15, color: colors.text },
+  replyTargetRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  authorRow: { marginTop: 8, flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
+  metaInline: { fontSize: 12, color: colors.textSecondary },
   likeBtn: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingLeft: 12, paddingTop: 2 },
   likeCount: { fontSize: 12, color: colors.textMuted },
   previewRow: {
@@ -513,6 +526,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg,
     borderRadius: radius.sm,
     marginBottom: 2,
+    gap: 8,
   },
   replyArrow: { color: colors.textMuted, fontWeight: '400' },
   replyTargetUser: { color: colors.primary, fontWeight: '600' },

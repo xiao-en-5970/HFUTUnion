@@ -3,8 +3,14 @@ import { apiRequest, buildQuery } from './client';
 export type UserInfo = {
   id?: number;
   username?: string;
+  /** 展示名；后端 fallback 到 username 永远非空 */
+  nickname?: string;
   avatar?: string;
+  /** 个性签名/一句话介绍（B 站个人页风格）；空串表示未填 */
+  bio?: string;
   background?: string;
+  follow_count?: number;
+  fans_count?: number;
   /** >0 表示已完成学籍认证绑定 */
   school_id?: number;
   school_name?: string;
@@ -17,6 +23,48 @@ export type UserInfo = {
   qq_child_user_id?: number;
   /** 已绑 QQ 号字符串展示用；当 qq_child_user_id > 0 时有值 */
   qq_child_qq_number?: string;
+};
+
+/** GET /user/:id 返回的公开个人展示页信息——B 站风格 */
+export type UserProfile = {
+  id: number;
+  username: string;
+  nickname?: string;
+  avatar?: string;
+  bio?: string;
+  background?: string;
+  follow_count: number;
+  fans_count: number;
+  created_at: string;
+  /** 1 普通账号 / 2 QQ 旗下号 */
+  account_type: number;
+  /** 旗下号挂的主账号（非孤儿） */
+  parent_user_id?: number;
+  parent_nickname?: string;
+  /** viewer 是否关注此 user */
+  is_following: boolean;
+  /** 此 user 是否关注 viewer（与 is_following 同真 = 互关） */
+  is_followed_by: boolean;
+  /** viewer 就是这个 user 本人 */
+  is_self: boolean;
+};
+
+/** 关注 / 取关 / 列表项里的"用户简略" */
+export type FollowedUserBrief = {
+  id: number;
+  username: string;
+  nickname?: string;
+  avatar?: string;
+  bio?: string;
+  account_type: number;
+  is_following: boolean;
+  is_followed_by: boolean;
+};
+
+export type FollowResult = {
+  is_following: boolean;
+  fans_count: number;
+  follow_count: number;
 };
 
 export type SchoolItem = { id: number; name: string; code: string };
@@ -156,4 +204,44 @@ export async function setDefaultLocation(id: number) {
   return apiRequest<unknown>(`/user/locations/${id}/default`, {
     method: 'POST',
   });
+}
+
+// =============================================================================
+// 个人展示页 / 关注关系（详见后端 controller/follow.go + service/follow.go）
+// =============================================================================
+
+/** GET /user/:id —— 个人展示页核心接口 */
+export async function fetchUserProfile(userId: number) {
+  return apiRequest<UserProfile>(`/user/${userId}`);
+}
+
+/** POST /user/:id/follow —— 关注 */
+export async function followUser(userId: number) {
+  return apiRequest<FollowResult>(`/user/${userId}/follow`, { method: 'POST' });
+}
+
+/** DELETE /user/:id/follow —— 取关 */
+export async function unfollowUser(userId: number) {
+  return apiRequest<FollowResult>(`/user/${userId}/follow`, { method: 'DELETE' });
+}
+
+export type FollowListResp = {
+  list: FollowedUserBrief[];
+  total: number;
+  page: number;
+  page_size: number;
+};
+
+/** GET /user/:id/following —— 列出 user :id 关注的人 */
+export async function listFollowing(userId: number, page = 1, pageSize = 30) {
+  return apiRequest<FollowListResp>(
+    `/user/${userId}/following${buildQuery({ page, pageSize })}`,
+  );
+}
+
+/** GET /user/:id/followers —— 列出 user :id 的粉丝 */
+export async function listFollowers(userId: number, page = 1, pageSize = 30) {
+  return apiRequest<FollowListResp>(
+    `/user/${userId}/followers${buildQuery({ page, pageSize })}`,
+  );
 }
