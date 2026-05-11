@@ -303,10 +303,11 @@ export default function HelpFeedScreen() {
                 return t ? <Text style={styles.price}>{t}</Text> : null;
               })()}
             </View>
-            <View style={styles.authorLineRow}>
-              <AuthorChip author={g.author as any} size="xs" fallback="发布者" />
-            </View>
           </View>
+        </View>
+        {/* author 独立成行，跟卡片左边对齐——无论有图没图布局一致，跟求解答（Q）那行同样位置 */}
+        <View style={styles.authorLineRow}>
+          <AuthorChip author={g.author as any} size="xs" fallback="发布者" />
         </View>
       </TouchableOpacity>
     );
