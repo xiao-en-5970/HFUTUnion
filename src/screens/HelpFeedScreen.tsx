@@ -302,6 +302,8 @@ export default function HelpFeedScreen() {
                 const t = formatGoodPrice(g.price, g.negotiable, g.goods_category);
                 return t ? <Text style={styles.price}>{t}</Text> : null;
               })()}
+            </View>
+            <View style={styles.authorLineRow}>
               <AuthorChip author={g.author as any} size="xs" fallback="发布者" />
             </View>
           </View>
@@ -462,7 +464,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexWrap: 'wrap',
     gap: 8,
-    justifyContent: 'space-between',
   },
   price: { fontSize: 16, fontWeight: '800', color: colors.danger },
   sheetWrap: { flex: 1, justifyContent: 'flex-end' },

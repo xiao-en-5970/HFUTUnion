@@ -36,7 +36,6 @@ import { listUserGoods } from '../api/goods';
 import type { RootStackParamList } from '../navigation/RootStack';
 
 const defaultAvatar = require('../assets/default-avatar.png');
-const defaultBg = require('../assets/default-bg.jpg');
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'UserProfile'>;
 type Rt = RouteProp<RootStackParamList, 'UserProfile'>;
@@ -303,12 +302,17 @@ function ProfileHeader({
     return null;
   }
   const avatarSource = profile.avatar ? { uri: profile.avatar } : defaultAvatar;
-  const bgSource = profile.background ? { uri: profile.background } : defaultBg;
+  // 默认背景：纯白，不再 ship 任何默认图片。用户上传过自己的背景才走 Image。
+  const bgSource = profile.background ? { uri: profile.background } : null;
   const isQQ = profile.account_type === 2;
 
   return (
     <View>
-      <Image source={bgSource} style={styles.bg} />
+      {bgSource ? (
+        <Image source={bgSource} style={styles.bg} />
+      ) : (
+        <View style={[styles.bg, styles.bgDefault]} />
+      )}
       <View style={styles.headerBody}>
         <Image source={avatarSource} style={styles.avatar} />
         <View style={styles.nameRow}>
@@ -416,6 +420,7 @@ function ProfileWorkRow({ item, onPress }: WorkRowProps) {
 
 const styles = StyleSheet.create({
   bg: { width: '100%', height: 140 },
+  bgDefault: { backgroundColor: '#FFFFFF' },
   headerBody: {
     alignItems: 'center',
     paddingHorizontal: space.md,

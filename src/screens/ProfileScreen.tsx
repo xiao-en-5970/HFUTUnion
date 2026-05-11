@@ -24,7 +24,6 @@ import { useNotifSettings } from '../utils/notifSettings';
 import { getNativeVersionName } from '../native/appInfo';
 
 const defaultAvatar = require('../assets/default-avatar.png');
-const defaultBg = require('../assets/default-bg.jpg');
 
 const menuAll = [
   { key: 'qq', label: 'QQ 认证', icon: 'link-outline', nav: 'QQBind' as const },
@@ -159,9 +158,10 @@ export default function ProfileScreen() {
   const avatarSource = user.avatar
     ? { uri: `${user.avatar}?t=${Date.now()}` }
     : defaultAvatar;
+  // 默认背景：纯白，不再用任何图。用户上传过自己的背景才走 Image。
   const bgSource = user.background
     ? { uri: `${user.background}?t=${Date.now()}` }
-    : defaultBg;
+    : null;
 
   const schoolVerified = Number(user.school_id) > 0;
   const menu = menuAll.filter((m) => m.key !== 'school' || !schoolVerified);
@@ -173,7 +173,11 @@ export default function ProfileScreen() {
         contentContainerStyle={styles.container}
         showsVerticalScrollIndicator={false}>
         <TouchableOpacity onPress={() => { setPreviewType('background'); setPreviewVisible(true); }}>
-          <Image source={bgSource} style={styles.bg} />
+          {bgSource ? (
+            <Image source={bgSource} style={styles.bg} />
+          ) : (
+            <View style={[styles.bg, styles.bgDefault]} />
+          )}
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.avatarWrap}
@@ -321,7 +325,11 @@ export default function ProfileScreen() {
       </ScrollView>
 
       <ImageViewing
-        images={[previewType === 'avatar' ? avatarSource : bgSource]}
+        images={[
+          previewType === 'avatar'
+            ? avatarSource
+            : bgSource ?? defaultAvatar /* 兜底，不会真展示——背景为空时按钮不可见，到不了这里 */,
+        ]}
         imageIndex={0}
         visible={previewVisible}
         onRequestClose={() => setPreviewVisible(false)}
@@ -344,6 +352,7 @@ const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   muted: { color: colors.textMuted },
   bg: { width: '100%', height: 140, borderRadius: 0 },
+  bgDefault: { backgroundColor: '#FFFFFF' },
   avatarWrap: { marginTop: -48, alignSelf: 'center' },
   avatar: {
     width: 96,
