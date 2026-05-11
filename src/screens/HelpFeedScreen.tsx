@@ -14,8 +14,9 @@ import {
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { listQuestions, type ArticleRow } from '../api/article';
-import { listGoods, type GoodRow } from '../api/goods';
+import Ionicons from 'react-native-vector-icons/Ionicons';
+import { listQuestions, type ArticleRow, type PostFeedMode } from '../api/article';
+import { listGoods, type GoodRow, type GoodsListSort } from '../api/goods';
 import Screen from '../components/Screen';
 import LoadingMask from '../components/LoadingMask';
 import CreateFab from '../components/CreateFab';
@@ -32,13 +33,34 @@ import { consumeListDirty } from '../utils/listInvalidate';
  * 「求助」页混排：
  *   - Q = 求解答（articles.type=2，原"提问"）
  *   - G = 求物品（goods.goods_category=2，原"有偿求助"）
- * 排序策略：两侧都走后端推荐流，客户端用 1:1 interleave；
- *   下拉刷新视作新一轮个性化排序（清空 refresh_token 重新开）。
+ *
+ * 排序策略跟"社区"页一致——顶部下拉切换 推荐 / 最新 / 热门 三档：
+ *   - 推荐：两侧都走后端 sort=recommend + refresh_token 稳定分页，客户端 1:1 interleave
+ *   - 最新：created_at DESC
+ *   - 热门：collect_count×10 + like_count×5 + view_count×1 DESC
+ * 下拉刷新视作新一轮排序（清空 refresh_token / 翻页 ref）。
  */
 
 type Row =
   | { k: 'question'; item: ArticleRow }
   | { k: 'help_good'; item: GoodRow };
+
+const FEED_OPTIONS: { value: PostFeedMode; label: string; hint: string }[] = [
+  {
+    value: 'recommend',
+    label: '推荐',
+    hint: '根据你的浏览、点赞、收藏个性化排序',
+  },
+  { value: 'latest', label: '最新', hint: '按发布时间，最新在前' },
+  { value: 'hot', label: '热门', hint: '近期互动多的求助' },
+];
+
+/** mode → goods sort 映射；goods 端"热门"叫 popularity，"最新"叫 newest */
+function modeToGoodsSort(mode: PostFeedMode): GoodsListSort {
+  if (mode === 'recommend') return 'recommend';
+  if (mode === 'hot') return 'popularity';
+  return 'newest';
+}
 
 function interleave(qs: ArticleRow[], gs: GoodRow[]): Row[] {
   const out: Row[] = [];
@@ -75,6 +97,8 @@ export default function HelpFeedScreen() {
   const [loadingMore, setLoadingMore] = useState(false);
   const loadingMoreRef = useRef(false);
   const [createSheet, setCreateSheet] = useState(false);
+  const [feedMode, setFeedMode] = useState<PostFeedMode>('recommend');
+  const [modeSheetOpen, setModeSheetOpen] = useState(false);
 
   const viewedQ = useViewedSet('question');
   const viewedG = useViewedSet('good');
@@ -89,8 +113,8 @@ export default function HelpFeedScreen() {
     hasMoreGRef.current = true;
     try {
       const [qr, gr] = await Promise.all([
-        listQuestions(1, PAGE_SIZE, { mode: 'recommend' }),
-        listGoods(1, PAGE_SIZE, { sort: 'recommend', category: 2 }),
+        listQuestions(1, PAGE_SIZE, { mode: feedMode }),
+        listGoods(1, PAGE_SIZE, { sort: modeToGoodsSort(feedMode), category: 2 }),
       ]);
       qTokenRef.current = qr.refresh_token;
       gTokenRef.current = gr.refresh_token;
@@ -117,7 +141,7 @@ export default function HelpFeedScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [feedMode]);
 
   const loadMore = useCallback(async () => {
     if (loadingMoreRef.current) {
@@ -135,7 +159,7 @@ export default function HelpFeedScreen() {
         tasks.push(
           (async () => {
             const r = await listQuestions(next, PAGE_SIZE, {
-              mode: 'recommend',
+              mode: feedMode,
               refreshToken: qTokenRef.current,
             });
             if (r.refresh_token) {
@@ -163,7 +187,7 @@ export default function HelpFeedScreen() {
         tasks.push(
           (async () => {
             const r = await listGoods(next, PAGE_SIZE, {
-              sort: 'recommend',
+              sort: modeToGoodsSort(feedMode),
               category: 2,
               refreshToken: gTokenRef.current,
             });
@@ -192,9 +216,9 @@ export default function HelpFeedScreen() {
       loadingMoreRef.current = false;
       setLoadingMore(false);
     }
-  }, []);
+  }, [feedMode]);
 
-  // 首次 mount 拉一次
+  // 首次 mount + feedMode 切换都重新拉
   useEffect(() => {
     loadInitial();
   }, [loadInitial]);
@@ -313,11 +337,23 @@ export default function HelpFeedScreen() {
     );
   };
 
+  const currentMode = FEED_OPTIONS.find((o) => o.value === feedMode) ?? FEED_OPTIONS[0];
+
   return (
     <Screen scroll={false} edges={['top']}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>求助</Text>
-        <Text style={styles.headerHint}>在线帮忙 · 有偿悬赏</Text>
+        <View style={styles.headerLeft}>
+          <Text style={styles.headerTitle}>求助</Text>
+          <Text style={styles.headerHint}>在线帮忙 · 有偿悬赏</Text>
+        </View>
+        <TouchableOpacity
+          style={styles.modeBtn}
+          onPress={() => setModeSheetOpen(true)}
+          activeOpacity={0.85}
+          hitSlop={8}>
+          <Text style={styles.modeBtnText}>{currentMode.label}</Text>
+          <Ionicons name="chevron-down" size={18} color={colors.primary} />
+        </TouchableOpacity>
       </View>
       <View style={styles.flex}>
         <LoadingMask visible={loading && rows.length === 0} hint="正在加载…" />
@@ -395,6 +431,52 @@ export default function HelpFeedScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* 排序模式切换模态——跟"社区"页同款 UX：点头部按钮弹出，三选一 */}
+      <Modal
+        visible={modeSheetOpen}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setModeSheetOpen(false)}>
+        <View style={styles.modeOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setModeSheetOpen(false)} />
+          <View style={styles.modeCard}>
+            <Text style={styles.modeTitle}>排序方式</Text>
+            <Text style={styles.modeSub}>随时可切换。</Text>
+            {FEED_OPTIONS.map((opt) => {
+              const on = opt.value === feedMode;
+              return (
+                <TouchableOpacity
+                  key={opt.value}
+                  style={[styles.modeRow, on && styles.modeRowOn]}
+                  onPress={() => {
+                    setFeedMode(opt.value);
+                    setModeSheetOpen(false);
+                  }}
+                  activeOpacity={0.85}>
+                  <View style={styles.modeRowText}>
+                    <Text style={[styles.modeRowLabel, on && styles.modeRowLabelOn]}>
+                      {opt.label}
+                    </Text>
+                    <Text style={styles.modeRowHint}>{opt.hint}</Text>
+                  </View>
+                  {on ? (
+                    <Ionicons name="checkmark-circle" size={22} color={colors.primary} />
+                  ) : (
+                    <View style={styles.modeRadio} />
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+            <TouchableOpacity
+              style={styles.modeCancel}
+              activeOpacity={0.85}
+              onPress={() => setModeSheetOpen(false)}>
+              <Text style={styles.modeCancelText}>取消</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </Screen>
   );
 }
@@ -402,11 +484,15 @@ export default function HelpFeedScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: space.md,
     paddingTop: space.sm,
     paddingBottom: space.sm,
     backgroundColor: colors.bg,
   },
+  headerLeft: { flex: 1, paddingRight: space.sm },
   headerTitle: {
     fontSize: 22,
     fontWeight: '700',
@@ -414,6 +500,59 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
   headerHint: { marginTop: 4, fontSize: 12, color: colors.textMuted },
+  modeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryLight,
+  },
+  modeBtnText: { fontSize: 15, fontWeight: '700', color: colors.primary },
+  modeOverlay: {
+    flex: 1,
+    backgroundColor: colors.overlay,
+    justifyContent: 'center',
+    paddingHorizontal: space.md,
+  },
+  modeCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    padding: space.md,
+  },
+  modeTitle: { fontSize: 17, fontWeight: '700', color: colors.text },
+  modeSub: {
+    marginTop: 8,
+    fontSize: 12,
+    color: colors.textMuted,
+    lineHeight: 18,
+    marginBottom: space.sm,
+  },
+  modeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  modeRowOn: { backgroundColor: colors.primaryLight, borderRadius: radius.sm },
+  modeRowText: { flex: 1, paddingRight: 8 },
+  modeRowLabel: { fontSize: 16, fontWeight: '600', color: colors.text },
+  modeRowLabelOn: { color: colors.primary },
+  modeRowHint: { fontSize: 11, color: colors.textMuted, marginTop: 4, lineHeight: 15 },
+  modeRadio: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: colors.border,
+  },
+  modeCancel: { alignItems: 'center', paddingVertical: 14, marginTop: 4 },
+  modeCancelText: { fontSize: 15, color: colors.textMuted, fontWeight: '600' },
   list: { paddingHorizontal: space.md, paddingTop: space.sm },
   footerSp: { marginVertical: 16 },
   empty: { textAlign: 'center', marginTop: 40, color: colors.textMuted },

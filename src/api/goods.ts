@@ -74,8 +74,9 @@ export type GoodRow = {
  * - `newest` 或空 = 上架时间降序
  * - `updated_at` = 最近更新
  * - `recommend` = 个性化推荐（带 refresh_token 稳定分页；仅在无关键词时生效）
+ * - `popularity` = 热度（收藏×10 + 点赞×5 + 浏览×1，同分按 created_at 倒序）
  */
-export type GoodsListSort = 'newest' | 'updated_at' | 'recommend';
+export type GoodsListSort = 'newest' | 'updated_at' | 'recommend' | 'popularity';
 
 export type GoodsListResult = {
   list: GoodRow[];
@@ -110,6 +111,8 @@ export async function listGoods(
       sortParam = 'recommend';
       refreshTokenParam = opts?.refreshToken || undefined;
     }
+  } else if (opts?.sort === 'popularity') {
+    sortParam = 'popularity';
   } else if (opts?.sort === 'newest') {
     sortParam = 'newest';
   }

@@ -25,6 +25,22 @@ import { getNativeVersionName } from '../native/appInfo';
 
 const defaultAvatar = require('../assets/default-avatar.png');
 
+/**
+ * appendCacheBust 在 URL 上正确拼一个 `t=<ts>` cache-busting 参数。
+ *
+ * 直接 `${url}?t=...` 在 url 已经带 query 的场景下会拼出两个 `?`——比如七牛缩略图
+ * URL 自带 `?imageView2/2/w/720/q/75`，再加 `?t=123` 就变成
+ * `...avatar.jpg?imageView2/.../q/75?t=123`，七牛解析失败 404。
+ *
+ * 为什么需要 cache-busting：用户在本机上传新头像/背景后，后端写到同一个 storage key
+ * （path 不变），RN Image 缓存里仍然是旧图——加个时间戳让 Image 重新拉一份。
+ */
+function appendCacheBust(url: string): string {
+  if (!url) return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}t=${Date.now()}`;
+}
+
 const menuAll = [
   { key: 'qq', label: 'QQ 认证', icon: 'link-outline', nav: 'QQBind' as const },
   { key: 'school', label: '学籍认证', icon: 'school-outline', nav: 'SchoolBind' as const },
@@ -156,11 +172,11 @@ export default function ProfileScreen() {
   }
 
   const avatarSource = user.avatar
-    ? { uri: `${user.avatar}?t=${Date.now()}` }
+    ? { uri: appendCacheBust(user.avatar) }
     : defaultAvatar;
   // 默认背景：纯白，不再用任何图。用户上传过自己的背景才走 Image。
   const bgSource = user.background
-    ? { uri: `${user.background}?t=${Date.now()}` }
+    ? { uri: appendCacheBust(user.background) }
     : null;
 
   const schoolVerified = Number(user.school_id) > 0;
